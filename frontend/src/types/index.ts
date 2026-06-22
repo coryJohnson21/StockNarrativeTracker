@@ -1,0 +1,101 @@
+export interface Source {
+  id: string;
+  type: "youtube" | "upload" | "earnings_call" | "10-K" | "10-Q" | "8-K";
+  url?: string;
+  title?: string;
+  channel?: string;
+  published_at?: string;
+  duration_seconds?: number;
+  status: "pending" | "processing" | "completed" | "failed";
+  error_message?: string;
+  source_metadata?: { ticker?: string; cik?: string; accession_number?: string; is_exhibit?: boolean };
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SP500Company {
+  ticker: string;
+  company: string;
+  sector: string;
+  cik: string;
+}
+
+export interface StockTrending {
+  id: string;
+  ticker: string;
+  company_name?: string;
+  sector?: string;
+  score: number;
+  mention_count: number;
+  mention_count_7d: number;
+  mention_count_30d: number;
+  mention_growth_rate: number;
+  avg_sentiment: number;
+  unique_sources: number;
+  ai_summary?: string;
+  computed_at: string;
+}
+
+export interface ThemeTrending {
+  id: string;
+  name: string;
+  description?: string;
+  score: number;
+  mention_count: number;
+  mention_count_7d: number;
+  mention_count_30d: number;
+  mention_growth_rate: number;
+  avg_sentiment: number;
+  unique_sources: number;
+  ai_summary?: string;
+  computed_at: string;
+}
+
+export interface DashboardStats {
+  total_sources: number;
+  sources_processing: number;
+  total_stocks_tracked: number;
+  total_themes_tracked: number;
+  top_stock?: string;
+  top_theme?: string;
+}
+
+export interface StockProfile {
+  ticker: string;
+  company_name?: string;
+  sector?: string;
+  description?: string;
+  price: { open?: number; current?: number; currency?: string };
+  fundamentals: {
+    market_cap?: number;
+    pe_ratio?: number;
+    price_to_book?: number;
+    price_to_sales?: number;
+  };
+  momentum_score?: number;
+  mention_breakdown: {
+    filing: { mention_count: number; avg_sentiment: number; unique_sources: number };
+    media: { mention_count: number; avg_sentiment: number; unique_sources: number };
+  };
+  narrative_summary?: string;
+}
+
+export interface ThemeProfile {
+  name: string;
+  description?: string;
+  momentum_score?: number;
+  mention_breakdown: {
+    filing: { mention_count: number; avg_sentiment: number; unique_sources: number };
+    media: { mention_count: number; avg_sentiment: number; unique_sources: number };
+  };
+  top_stocks: { ticker: string; company_name?: string; co_mentions: number }[];
+}
+
+export interface Mention {
+  source_title?: string;
+  source_type?: string;
+  source_channel?: string;
+  sentiment_score: number;
+  context: string;
+  mentioned_at: string;
+}
