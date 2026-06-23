@@ -91,10 +91,30 @@ export interface ThemeProfile {
   top_stocks: { ticker: string; company_name?: string; co_mentions: number }[];
 }
 
+export interface BasketBreakdown {
+  mention_count: number;
+  avg_sentiment: number;
+  unique_sources: number;
+}
+
+export interface WatchlistItem {
+  ticker: string;
+  company_name?: string;
+  momentum_score?: number;
+  added_at: string;
+  baskets: {
+    youtube: BasketBreakdown;
+    news: BasketBreakdown;
+    reddit: BasketBreakdown;
+    filing: BasketBreakdown;
+  };
+}
+
 export interface Mention {
   source_title?: string;
   source_type?: string;
   source_channel?: string;
+  source_url?: string;
   sentiment_score: number;
   context: string;
   mentioned_at: string;

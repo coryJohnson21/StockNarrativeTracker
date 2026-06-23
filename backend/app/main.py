@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine, Base
-from app.routers import ingest, stocks, themes, sources, sec
+from app.routers import ingest, stocks, themes, sources, sec, watchlist
 from app.tasks.sec_scan import scan_all_sp500
 
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +59,7 @@ app.include_router(stocks.router, prefix="/api")
 app.include_router(themes.router, prefix="/api")
 app.include_router(sources.router, prefix="/api")
 app.include_router(sec.router, prefix="/api")
+app.include_router(watchlist.router, prefix="/api")
 
 
 @app.get("/api/health")

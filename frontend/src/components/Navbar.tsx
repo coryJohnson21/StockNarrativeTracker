@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { TrendingUp, BarChart2, Layers, Upload, Database } from "lucide-react";
+import { TrendingUp, BarChart2, Layers, Upload, Database, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
   { href: "/", label: "Dashboard", icon: BarChart2 },
+  { href: "/watchlist", label: "Watchlist", icon: Star },
   { href: "/stocks", label: "Stocks", icon: TrendingUp },
   { href: "/themes", label: "Themes", icon: Layers },
   { href: "/ingest", label: "Add Content", icon: Upload },

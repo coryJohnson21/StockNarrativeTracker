@@ -12,6 +12,21 @@ from app.models.models import (
 # type is treated as media.
 FILING_SOURCE_TYPES = ("10-K", "10-Q", "8-K", "earnings_call")
 
+# Watchlist media baskets — finer-grained than the filing/media split above, used to
+# show where a watched ticker's narrative is actually coming from. Source.type values
+# are tagged at ingestion time (YouTube tab -> "youtube", Paste Transcript tab lets the
+# user pick "news" or "reddit", SEC Filings tab -> 10-K/10-Q/8-K).
+YOUTUBE_SOURCE_TYPES = ("youtube",)
+NEWS_SOURCE_TYPES = ("news", "cnbc", "bloomberg")
+REDDIT_SOURCE_TYPES = ("reddit", "wallstreetbets", "r/wallstreetbets", "r/stocks")
+
+WATCHLIST_BASKETS = {
+    "youtube": YOUTUBE_SOURCE_TYPES,
+    "news": NEWS_SOURCE_TYPES,
+    "reddit": REDDIT_SOURCE_TYPES,
+    "filing": FILING_SOURCE_TYPES,
+}
+
 
 def _compute_score(
     total_mentions: int,
@@ -235,6 +250,76 @@ async def get_stock_mention_breakdown(db: AsyncSession, stock_id) -> dict:
             "unique_sources": row.unique_sources or 0,
         }
     return breakdown
+
+
+def empty_basket_breakdown() -> dict:
+    return {
+        name: {"mention_count": 0, "avg_sentiment": 0.0, "unique_sources": 0}
+        for name in WATCHLIST_BASKETS
+    }
+
+
+async def get_stock_basket_breakdown(db: AsyncSession, stock_id) -> dict:
+    """Per-basket (YouTube / news / Reddit & forums / filing) mention count, sentiment,
+    and source diversity for a single stock — used on the watchlist."""
+    breakdown = empty_basket_breakdown()
+    for basket_name, source_types in WATCHLIST_BASKETS.items():
+        q = (
+            select(
+                func.count(StockMention.id).label("total"),
+                func.avg(StockMention.sentiment_score).label("avg_sentiment"),
+                func.count(distinct(StockMention.source_id)).label("unique_sources"),
+            )
+            .join(Source, StockMention.source_id == Source.id)
+            .where(StockMention.stock_id == stock_id, Source.type.in_(source_types))
+        )
+        row = (await db.execute(q)).one()
+        breakdown[basket_name] = {
+            "mention_count": row.total or 0,
+            "avg_sentiment": round(row.avg_sentiment or 0.0, 1),
+            "unique_sources": row.unique_sources or 0,
+        }
+    return breakdown
+
+
+# Bucket granularity and lookback window per chart range — daily buckets get noisy
+# past a few months, so wider ranges roll up to weekly/monthly.
+MENTION_HISTORY_RANGES = {
+    "1mo": (30, "day"),
+    "3mo": (90, "day"),
+    "6mo": (180, "week"),
+    "1y": (365, "week"),
+    "5y": (1825, "month"),
+}
+
+
+async def get_stock_mention_history(db: AsyncSession, stock_id, range_: str = "6mo") -> list[dict]:
+    """Mention count + average sentiment over time for a stock, bucketed from raw
+    StockMention timestamps — lets the narrative momentum chart show when a story
+    built, not just where it stands today."""
+    days, granularity = MENTION_HISTORY_RANGES.get(range_, MENTION_HISTORY_RANGES["6mo"])
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    bucket = func.date_trunc(granularity, StockMention.mentioned_at)
+    q = (
+        select(
+            bucket.label("bucket"),
+            func.count(StockMention.id).label("mention_count"),
+            func.avg(StockMention.sentiment_score).label("avg_sentiment"),
+        )
+        .where(StockMention.stock_id == stock_id, StockMention.mentioned_at >= cutoff)
+        .group_by(bucket)
+        .order_by(bucket)
+    )
+    rows = (await db.execute(q)).all()
+    return [
+        {
+            "date": row.bucket.date().isoformat(),
+            "mention_count": row.mention_count,
+            "avg_sentiment": round(row.avg_sentiment or 0.0, 1),
+        }
+        for row in rows
+    ]
 
 
 async def get_theme_mention_breakdown(db: AsyncSession, theme_id) -> dict:

@@ -1,4 +1,4 @@
-import type { Source, StockTrending, ThemeTrending, DashboardStats, Mention, SP500Company, StockProfile, ThemeProfile } from "@/types";
+import type { Source, StockTrending, ThemeTrending, DashboardStats, Mention, SP500Company, StockProfile, ThemeProfile, WatchlistItem } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -100,6 +100,19 @@ export async function getStockPriceHistory(
   return apiFetch(`/api/stocks/${ticker}/price-history?range=${range}`);
 }
 
+export interface MentionHistoryPoint {
+  date: string;
+  mention_count: number;
+  avg_sentiment: number;
+}
+
+export async function getStockMentionHistory(
+  ticker: string,
+  range: PriceRange = "6mo"
+): Promise<{ ticker: string; range: PriceRange; points: MentionHistoryPoint[] }> {
+  return apiFetch(`/api/stocks/${ticker}/mention-history?range=${range}`);
+}
+
 export async function getStockMentions(
   ticker: string,
   limit = 20,
@@ -138,6 +151,23 @@ export async function getThemeMentions(
   const q = new URLSearchParams({ limit: String(limit) });
   if (category) q.set("category", category);
   return apiFetch(`/api/themes/${encodeURIComponent(name)}/mentions?${q}`);
+}
+
+// --- Watchlist ---
+
+export async function getWatchlist(): Promise<{ items: WatchlistItem[] }> {
+  return apiFetch("/api/watchlist");
+}
+
+export async function addToWatchlist(ticker: string): Promise<WatchlistItem> {
+  return apiFetch<WatchlistItem>("/api/watchlist", {
+    method: "POST",
+    body: JSON.stringify({ ticker }),
+  });
+}
+
+export async function removeFromWatchlist(ticker: string): Promise<void> {
+  await apiFetch(`/api/watchlist/${ticker}`, { method: "DELETE" });
 }
 
 // --- Dashboard ---

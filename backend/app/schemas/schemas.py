@@ -102,6 +102,30 @@ class ThemeListResponse(BaseModel):
     total: int
 
 
+# --- Watchlist ---
+
+class WatchlistAddRequest(BaseModel):
+    ticker: str
+
+
+class BasketBreakdown(BaseModel):
+    mention_count: int
+    avg_sentiment: float
+    unique_sources: int
+
+
+class WatchlistItemResponse(BaseModel):
+    ticker: str
+    company_name: Optional[str]
+    momentum_score: Optional[float]
+    added_at: datetime
+    baskets: dict[str, BasketBreakdown]
+
+
+class WatchlistListResponse(BaseModel):
+    items: List[WatchlistItemResponse]
+
+
 # --- Dashboard Stats ---
 
 class DashboardStats(BaseModel):

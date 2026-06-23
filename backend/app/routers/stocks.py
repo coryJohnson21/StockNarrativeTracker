@@ -11,6 +11,7 @@ from app.services.momentum import (
     get_trending_stocks_by_category,
     get_stock_mention_breakdown,
     get_stock_mention_contexts,
+    get_stock_mention_history,
     FILING_SOURCE_TYPES,
 )
 from app.services import market_data
@@ -128,6 +129,7 @@ async def get_stock_mentions(
             "source_title": src.title,
             "source_type": src.type,
             "source_channel": src.channel,
+            "source_url": src.url,
             "sentiment_score": mention.sentiment_score,
             "context": mention.context,
             "mentioned_at": mention.mentioned_at,
@@ -153,6 +155,24 @@ async def get_stock_price_history(
         raise HTTPException(status_code=404, detail=f"{ticker.upper()} is not tracked")
 
     points = await market_data.fetch_price_history(stock.ticker, range_=range)
+    return {"ticker": stock.ticker, "range": range, "points": points}
+
+
+@router.get("/{ticker}/mention-history")
+async def get_stock_mention_history_endpoint(
+    ticker: str,
+    range: Literal["1mo", "3mo", "6mo", "1y", "5y"] = Query("6mo"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mention count + sentiment over time, bucketed from raw mention timestamps —
+    powers the narrative momentum chart so users can see when the story built up,
+    not just its current snapshot."""
+    stock_result = await db.execute(select(Stock).where(Stock.ticker == ticker.upper()))
+    stock = stock_result.scalar_one_or_none()
+    if stock is None:
+        raise HTTPException(status_code=404, detail=f"{ticker.upper()} is not tracked")
+
+    points = await get_stock_mention_history(db, stock.id, range_=range)
     return {"ticker": stock.ticker, "range": range, "points": points}
 
 

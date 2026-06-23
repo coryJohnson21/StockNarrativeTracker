@@ -3,14 +3,15 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, AlertCircle, Landmark, Newspaper } from "lucide-react";
+import { ArrowLeft, Loader2, AlertCircle, Landmark, Newspaper, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { SentimentBadge } from "@/components/SentimentBadge";
 import { MomentumBar } from "@/components/MomentumBadge";
-import { getStockProfile } from "@/lib/api";
+import { getStockProfile, getStockMentions } from "@/lib/api";
 import { formatLargeNumber, formatRatio, formatPrice } from "@/lib/utils";
 import { StockPriceChart } from "@/components/StockPriceChart";
-import type { StockProfile } from "@/types";
+import { MomentumHistoryChart } from "@/components/MomentumHistoryChart";
+import type { StockProfile, Mention } from "@/types";
 
 function StatTile({ label, value }: { label: string; value: string }) {
   return (
@@ -28,6 +29,7 @@ export default function StockDetailPage() {
   const [profile, setProfile] = useState<StockProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filings, setFilings] = useState<Mention[]>([]);
 
   useEffect(() => {
     if (!ticker) return;
@@ -36,6 +38,17 @@ export default function StockDetailPage() {
       .then(setProfile)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+    getStockMentions(ticker, 50, "filing")
+      .then((r) => {
+        const seen = new Set<string>();
+        const unique = r.mentions.filter((m) => {
+          if (!m.source_url || seen.has(m.source_url)) return false;
+          seen.add(m.source_url);
+          return true;
+        });
+        setFilings(unique.slice(0, 10));
+      })
+      .catch(() => setFilings([]));
   }, [ticker]);
 
   return (
@@ -116,6 +129,13 @@ export default function StockDetailPage() {
                 </p>
               )}
 
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                  Momentum over time
+                </p>
+                <MomentumHistoryChart ticker={profile.ticker} />
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="rounded-lg border p-4 space-y-2">
                   <div className="flex items-center gap-2 text-sm font-medium">
@@ -130,6 +150,26 @@ export default function StockDetailPage() {
                     <span>{profile.mention_breakdown.filing.unique_sources} source(s)</span>
                     <SentimentBadge score={profile.mention_breakdown.filing.avg_sentiment} showNumber />
                   </div>
+                  {filings.length > 0 && (
+                    <ul className="space-y-1 pt-1 border-t">
+                      {filings.map((m, i) => (
+                        <li key={i}>
+                          <a
+                            href={m.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline truncate"
+                          >
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                            <span className="truncate">
+                              {m.source_type} &middot;{" "}
+                              {m.mentioned_at ? new Date(m.mentioned_at).toLocaleDateString() : ""}
+                            </span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
 
                 <div className="rounded-lg border p-4 space-y-2">

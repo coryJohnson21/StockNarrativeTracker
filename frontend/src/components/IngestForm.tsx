@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Youtube, FileText, CheckCircle, AlertCircle, Landmark } from "lucide-react";
+import { Loader2, Youtube, FileText, CheckCircle, AlertCircle, Landmark, Newspaper, MessagesSquare } from "lucide-react";
 import { ingestYouTube, ingestTranscript, scanSecTicker } from "@/lib/api";
 import type { Source } from "@/types";
 
@@ -28,6 +28,7 @@ export function IngestForm() {
   const [txTitle, setTxTitle] = useState("");
   const [txChannel, setTxChannel] = useState("");
   const [txContent, setTxContent] = useState("");
+  const [txCategory, setTxCategory] = useState<"news" | "reddit">("news");
 
   // SEC tab state
   const [secTicker, setSecTicker] = useState("");
@@ -63,6 +64,7 @@ export function IngestForm() {
         title: txTitle,
         content: txContent,
         channel: txChannel || undefined,
+        source_type: txCategory,
       });
       setResult({ source, type: "transcript" });
       setTxTitle("");
@@ -174,6 +176,32 @@ export function IngestForm() {
 
             <TabsContent value="transcript">
               <form onSubmit={handleTranscript} className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Media Category</label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={txCategory === "news" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setTxCategory("news")}
+                    >
+                      <Newspaper className="h-3.5 w-3.5 mr-1.5" />
+                      News (CNBC, Bloomberg)
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={txCategory === "reddit" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setTxCategory("reddit")}
+                    >
+                      <MessagesSquare className="h-3.5 w-3.5 mr-1.5" />
+                      Reddit & Forums
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Tags this content for watchlist baskets — e.g. a pasted r/wallstreetbets or r/stocks thread.
+                  </p>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Title *</label>

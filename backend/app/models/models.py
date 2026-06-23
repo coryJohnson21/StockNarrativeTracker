@@ -159,6 +159,16 @@ class StockNarrative(Base):
     stock = relationship("Stock")
 
 
+class WatchlistItem(Base):
+    """A ticker the user wants pinned and tracked across media baskets
+    (YouTube, news, Reddit/forums) and filings, independent of global momentum rankings."""
+    __tablename__ = "watchlist_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ticker = Column(String(10), unique=True, nullable=False)
+    added_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ThemeMomentum(Base):
     __tablename__ = "theme_momentum"
     __table_args__ = (UniqueConstraint("theme_id"),)
