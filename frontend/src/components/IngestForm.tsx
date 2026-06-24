@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Youtube, FileText, CheckCircle, AlertCircle, Landmark, Newspaper, MessagesSquare } from "lucide-react";
+import { Loader2, Youtube, FileText, CheckCircle, AlertCircle, Landmark, Newspaper, MessagesSquare, Rss } from "lucide-react";
 import { ingestYouTube, ingestTranscript, scanSecTicker } from "@/lib/api";
+import { PodcastFeedsTab } from "@/components/PodcastFeedsTab";
 import type { Source } from "@/types";
 
 interface Result {
@@ -98,8 +99,8 @@ export function IngestForm() {
       <CardHeader>
         <CardTitle>Add Financial Content</CardTitle>
         <CardDescription>
-          Paste a YouTube URL, upload a transcript, or pull SEC filings for an S&amp;P 500 ticker. AI will extract
-          stocks, themes, and sentiment automatically.
+          Paste a YouTube URL, upload a transcript, pull SEC filings for an S&amp;P 500 ticker, or subscribe to a
+          podcast feed for auto-ingestion. AI will extract stocks, themes, and sentiment automatically.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -135,6 +136,10 @@ export function IngestForm() {
               <TabsTrigger value="sec" className="gap-2">
                 <Landmark className="h-4 w-4" />
                 SEC Filings
+              </TabsTrigger>
+              <TabsTrigger value="podcasts" className="gap-2">
+                <Rss className="h-4 w-4" />
+                Podcast Feeds
               </TabsTrigger>
             </TabsList>
 
@@ -291,6 +296,10 @@ export function IngestForm() {
                   )}
                 </Button>
               </form>
+            </TabsContent>
+
+            <TabsContent value="podcasts">
+              <PodcastFeedsTab />
             </TabsContent>
           </Tabs>
         )}

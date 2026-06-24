@@ -7,8 +7,9 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine, Base
-from app.routers import ingest, stocks, themes, sources, sec, watchlist
+from app.routers import ingest, stocks, themes, sources, sec, watchlist, podcasts
 from app.tasks.sec_scan import scan_all_sp500
+from app.tasks.podcast_poll import poll_all_feeds
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,6 +26,17 @@ async def _periodic_sec_scan():
             logger.exception("Periodic SEC scan failed")
 
 
+async def _periodic_podcast_poll():
+    # Same reload-safety reasoning as _periodic_sec_scan: sleep first, use
+    # POST /api/podcasts/{id}/poll to check a feed on demand instead.
+    while True:
+        await asyncio.sleep(settings.podcast_poll_interval_minutes * 60)
+        try:
+            await poll_all_feeds()
+        except Exception:
+            logger.exception("Periodic podcast poll failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create tables on startup (for dev; use alembic in prod)
@@ -34,8 +46,10 @@ async def lifespan(app: FastAPI):
     logger.info("Database ready")
 
     scan_task = asyncio.create_task(_periodic_sec_scan())
+    podcast_task = asyncio.create_task(_periodic_podcast_poll())
     yield
     scan_task.cancel()
+    podcast_task.cancel()
     await engine.dispose()
 
 
@@ -60,6 +74,7 @@ app.include_router(themes.router, prefix="/api")
 app.include_router(sources.router, prefix="/api")
 app.include_router(sec.router, prefix="/api")
 app.include_router(watchlist.router, prefix="/api")
+app.include_router(podcasts.router, prefix="/api")
 
 
 @app.get("/api/health")

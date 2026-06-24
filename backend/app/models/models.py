@@ -169,6 +169,20 @@ class WatchlistItem(Base):
     added_at = Column(DateTime, default=datetime.utcnow)
 
 
+class PodcastFeed(Base):
+    """An RSS feed (e.g. a CNBC or Bloomberg podcast) polled periodically for new
+    episodes — each new episode becomes a Source that runs through the normal
+    download -> transcribe -> extract pipeline, same as a pasted YouTube URL."""
+    __tablename__ = "podcast_feeds"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    url = Column(String(1000), unique=True, nullable=False)
+    label = Column(String(200), nullable=False)
+    source_type = Column(String(20), default="news")
+    last_polled_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ThemeMomentum(Base):
     __tablename__ = "theme_momentum"
     __table_args__ = (UniqueConstraint("theme_id"),)

@@ -110,6 +110,16 @@ export interface WatchlistItem {
   };
 }
 
+export interface PodcastFeed {
+  id: string;
+  url: string;
+  label: string;
+  source_type: string;
+  last_polled_at?: string;
+  created_at: string;
+  episode_count: number;
+}
+
 export interface Mention {
   source_title?: string;
   source_type?: string;

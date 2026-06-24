@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     temp_dir: str = "/tmp/narrativetracker"
     sec_contact_email: str = "admin@example.com"
     sec_scan_interval_hours: int = 24
+    podcast_poll_interval_minutes: int = 60
 
     class Config:
         env_file = ".env"

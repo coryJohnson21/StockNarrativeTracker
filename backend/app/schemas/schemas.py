@@ -126,6 +126,31 @@ class WatchlistListResponse(BaseModel):
     items: List[WatchlistItemResponse]
 
 
+# --- Podcast Feeds ---
+
+class PodcastFeedAddRequest(BaseModel):
+    url: str
+    label: str
+    source_type: str = "news"
+
+
+class PodcastFeedResponse(BaseModel):
+    id: UUID
+    url: str
+    label: str
+    source_type: str
+    last_polled_at: Optional[datetime]
+    created_at: datetime
+    episode_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class PodcastFeedListResponse(BaseModel):
+    feeds: List[PodcastFeedResponse]
+
+
 # --- Dashboard Stats ---
 
 class DashboardStats(BaseModel):

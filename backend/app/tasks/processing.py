@@ -16,6 +16,7 @@ from app.services.extraction import extract_from_transcript
 from app.services.embeddings import generate_embedding
 from app.services.momentum import refresh_stock_momentum, refresh_theme_momentum
 from app.services import sec_edgar
+from app.services import podcast as podcast_service
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,49 @@ async def process_youtube_source(source_id: str) -> None:
 
         except Exception as e:
             logger.exception(f"Error processing source {source_id}: {e}")
+            source.status = "failed"
+            source.error_message = str(e)[:500]
+            source.updated_at = datetime.utcnow()
+            await db.commit()
+
+
+async def process_podcast_episode_source(source_id: str) -> None:
+    """Pipeline for a podcast RSS episode: the feed already gives a direct audio
+    URL, so this skips yt-dlp/metadata lookup and goes straight to download ->
+    transcribe -> extract, same as process_youtube_source from there on."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Source).where(Source.id == source_id))
+        source = result.scalar_one_or_none()
+        if source is None:
+            logger.error(f"Source {source_id} not found")
+            return
+
+        source.status = "processing"
+        source.updated_at = datetime.utcnow()
+        await db.commit()
+
+        try:
+            os.makedirs(settings.temp_dir, exist_ok=True)
+            audio_path = os.path.join(settings.temp_dir, f"{source_id}.mp3")
+            await podcast_service.download_episode_audio(source.url, audio_path)
+
+            # Whisper API caps uploads at 25MB; bail out before paying for a
+            # transcription call that will just fail.
+            if os.path.getsize(audio_path) > 25 * 1024 * 1024:
+                os.remove(audio_path)
+                raise ValueError("Episode audio exceeds the 25MB Whisper upload limit")
+
+            transcript_text = await transcribe_audio(audio_path)
+
+            try:
+                os.remove(audio_path)
+            except Exception:
+                pass
+
+            await _store_and_process(db, source, transcript_text)
+
+        except Exception as e:
+            logger.exception(f"Error processing podcast episode source {source_id}: {e}")
             source.status = "failed"
             source.error_message = str(e)[:500]
             source.updated_at = datetime.utcnow()

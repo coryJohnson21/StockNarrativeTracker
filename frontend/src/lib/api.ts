@@ -1,4 +1,4 @@
-import type { Source, StockTrending, ThemeTrending, DashboardStats, Mention, SP500Company, StockProfile, ThemeProfile, WatchlistItem } from "@/types";
+import type { Source, StockTrending, ThemeTrending, DashboardStats, Mention, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -168,6 +168,31 @@ export async function addToWatchlist(ticker: string): Promise<WatchlistItem> {
 
 export async function removeFromWatchlist(ticker: string): Promise<void> {
   await apiFetch(`/api/watchlist/${ticker}`, { method: "DELETE" });
+}
+
+// --- Podcast Feeds ---
+
+export async function getPodcastFeeds(): Promise<{ feeds: PodcastFeed[] }> {
+  return apiFetch("/api/podcasts");
+}
+
+export async function addPodcastFeed(data: {
+  url: string;
+  label: string;
+  source_type?: string;
+}): Promise<PodcastFeed> {
+  return apiFetch<PodcastFeed>("/api/podcasts", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function removePodcastFeed(id: string): Promise<void> {
+  await apiFetch(`/api/podcasts/${id}`, { method: "DELETE" });
+}
+
+export async function pollPodcastFeedNow(id: string): Promise<{ status: string; detail: string }> {
+  return apiFetch(`/api/podcasts/${id}/poll`, { method: "POST" });
 }
 
 // --- Dashboard ---
