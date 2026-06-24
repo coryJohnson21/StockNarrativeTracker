@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Layers } from "lucide-react";
 import { SentimentBadge } from "./SentimentBadge";
 import { MomentumBar } from "./MomentumBadge";
+import { SortableHeader } from "./SortableHeader";
 import { getTrendingThemes, type SourceCategory } from "@/lib/api";
 import { growthLabel, growthColor, timeAgo } from "@/lib/utils";
 import type { ThemeTrending } from "@/types";
@@ -15,11 +16,24 @@ interface Props {
   category?: SourceCategory;
 }
 
+type SortKey =
+  | "name"
+  | "score"
+  | "mention_count"
+  | "mention_growth_rate"
+  | "avg_sentiment"
+  | "unique_sources"
+  | "computed_at";
+
+const STRING_KEYS: SortKey[] = ["name"];
+
 export function TrendingThemesTable({ limit = 20, compact = false, category }: Props) {
   const router = useRouter();
   const [themes, setThemes] = useState<ThemeTrending[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("score");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   useEffect(() => {
     setLoading(true);
@@ -28,6 +42,32 @@ export function TrendingThemesTable({ limit = 20, compact = false, category }: P
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [limit, category]);
+
+  function handleSort(key: string) {
+    const k = key as SortKey;
+    if (k === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(k);
+      setSortDir(STRING_KEYS.includes(k) ? "asc" : "desc");
+    }
+  }
+
+  const sortedThemes = useMemo(() => {
+    const sorted = [...themes].sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === "string" || typeof bv === "string") {
+        return String(av).localeCompare(String(bv));
+      }
+      return (av as number) - (bv as number);
+    });
+    if (sortDir === "desc") sorted.reverse();
+    return sorted;
+  }, [themes, sortKey, sortDir]);
 
   if (loading) {
     return (
@@ -56,17 +96,21 @@ export function TrendingThemesTable({ limit = 20, compact = false, category }: P
         <thead>
           <tr className="border-b border-border text-muted-foreground text-xs uppercase tracking-wide">
             <th className="text-left py-2 px-3 w-8">#</th>
-            <th className="text-left py-2 px-3">Theme</th>
-            <th className="text-left py-2 px-3">Momentum</th>
-            <th className="text-right py-2 px-3">Mentions</th>
-            <th className="text-right py-2 px-3">7d Growth</th>
-            <th className="text-left py-2 px-3">Sentiment</th>
-            {!compact && <th className="text-right py-2 px-3">Sources</th>}
-            {!compact && <th className="text-right py-2 px-3">Updated</th>}
+            <SortableHeader label="Theme" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+            <SortableHeader label="Momentum" sortKey="score" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+            <SortableHeader label="Mentions" sortKey="mention_count" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
+            <SortableHeader label="7d Growth" sortKey="mention_growth_rate" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
+            <SortableHeader label="Sentiment" sortKey="avg_sentiment" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+            {!compact && (
+              <SortableHeader label="Sources" sortKey="unique_sources" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
+            )}
+            {!compact && (
+              <SortableHeader label="Updated" sortKey="computed_at" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
+            )}
           </tr>
         </thead>
         <tbody>
-          {themes.map((theme, i) => (
+          {sortedThemes.map((theme, i) => (
             <tr
               key={theme.id}
               className="border-b border-border/50 hover:bg-accent/30 cursor-pointer transition-colors"
