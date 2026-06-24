@@ -128,10 +128,12 @@ async def _find_earnings_exhibit(
     except httpx.HTTPStatusError:
         return None
 
+    # EDGAR's index.json "type" field is just a generic icon hint (e.g. "text.gif"),
+    # not the exhibit type -- the actual EX-99.x designation only shows up in the
+    # filename itself (e.g. "msft-ex99_1.htm"), so match on that instead.
     items = response.json().get("directory", {}).get("item", [])
     for item in items:
-        item_type = (item.get("type") or "").upper()
-        if item_type.startswith("EX-99"):
+        if re.search(r"ex-?99", item["name"], re.IGNORECASE):
             return item["name"]
     return None
 
