@@ -44,3 +44,5 @@ services:
 
 volumes:
   postgres_data:
+    external: true
+    name: narrativetracker_postgres_data
