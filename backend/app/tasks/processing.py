@@ -238,6 +238,7 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
     await db.flush()
 
     # Step 4: Store stock mentions
+    filer_ticker = (source.source_metadata or {}).get("ticker")
     for stock_data in extraction["stocks"]:
         stock = await _get_or_create_stock(
             db, stock_data["ticker"], stock_data.get("company", "")
@@ -248,6 +249,7 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
             sentiment_score=stock_data.get("sentiment", 0),
             context=stock_data.get("context", ""),
             mentioned_at=datetime.utcnow(),
+            is_self_mention=filer_ticker is not None and stock.ticker == filer_ticker,
         )
         db.add(mention)
 

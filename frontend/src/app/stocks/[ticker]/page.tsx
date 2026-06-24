@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, AlertCircle, Landmark, Newspaper, ExternalLink } from "lucide-react";
+import { ArrowLeft, Loader2, AlertCircle, Landmark, Newspaper, ExternalLink, Building2, Globe } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { SentimentBadge } from "@/components/SentimentBadge";
 import { MomentumBar } from "@/components/MomentumBadge";
@@ -184,6 +184,48 @@ export default function StockDetailPage() {
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span>{profile.mention_breakdown.media.unique_sources} source(s)</span>
                     <SentimentBadge score={profile.mention_breakdown.media.avg_sentiment} showNumber />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                  Self vs. external mentions
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  How much of this stock&apos;s narrative comes from the company talking about
+                  itself vs. independent coverage. Self-mentions count for less toward the
+                  momentum score above.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="rounded-lg border p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Building2 className="h-4 w-4 text-amber-400" />
+                      Self-mentions
+                    </div>
+                    <p className="text-2xl font-bold tabular-nums">
+                      {profile.self_vs_external_breakdown.self.mention_count}{" "}
+                      <span className="text-sm font-normal text-muted-foreground">mentions</span>
+                    </p>
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
+                      <span>{profile.self_vs_external_breakdown.self.unique_sources} source(s)</span>
+                      <SentimentBadge score={profile.self_vs_external_breakdown.self.avg_sentiment} showNumber />
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Globe className="h-4 w-4 text-purple-400" />
+                      External mentions
+                    </div>
+                    <p className="text-2xl font-bold tabular-nums">
+                      {profile.self_vs_external_breakdown.external.mention_count}{" "}
+                      <span className="text-sm font-normal text-muted-foreground">mentions</span>
+                    </p>
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
+                      <span>{profile.self_vs_external_breakdown.external.unique_sources} source(s)</span>
+                      <SentimentBadge score={profile.self_vs_external_breakdown.external.avg_sentiment} showNumber />
+                    </div>
                   </div>
                 </div>
               </div>

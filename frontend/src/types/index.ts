@@ -77,6 +77,10 @@ export interface StockProfile {
     filing: { mention_count: number; avg_sentiment: number; unique_sources: number };
     media: { mention_count: number; avg_sentiment: number; unique_sources: number };
   };
+  self_vs_external_breakdown: {
+    self: { mention_count: number; avg_sentiment: number; unique_sources: number };
+    external: { mention_count: number; avg_sentiment: number; unique_sources: number };
+  };
   narrative_summary?: string;
 }
 

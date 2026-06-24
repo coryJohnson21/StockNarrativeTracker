@@ -10,6 +10,7 @@ from app.schemas.schemas import StockMomentumResponse, StockListResponse
 from app.services.momentum import (
     get_trending_stocks_by_category,
     get_stock_mention_breakdown,
+    get_stock_self_vs_external_breakdown,
     get_stock_mention_contexts,
     get_stock_mention_history,
     FILING_SOURCE_TYPES,
@@ -206,6 +207,7 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
     momentum = momentum_result.scalar_one_or_none()
 
     mention_breakdown = await get_stock_mention_breakdown(db, stock.id)
+    self_vs_external_breakdown = await get_stock_self_vs_external_breakdown(db, stock.id)
 
     total_mentions = mention_breakdown["filing"]["mention_count"] + mention_breakdown["media"]["mention_count"]
 
@@ -252,5 +254,6 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
         },
         "momentum_score": momentum.score if momentum else None,
         "mention_breakdown": mention_breakdown,
+        "self_vs_external_breakdown": self_vs_external_breakdown,
         "narrative_summary": narrative_summary,
     }

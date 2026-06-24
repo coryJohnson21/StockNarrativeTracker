@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Float, Text, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Float, Text, DateTime, ForeignKey, UniqueConstraint, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
@@ -75,6 +75,12 @@ class StockMention(Base):
     sentiment_score = Column(Float)
     context = Column(Text)
     mentioned_at = Column(DateTime, default=datetime.utcnow)
+    # True when this mention's source was filed/published by the same company being
+    # mentioned (e.g. MSFT mentioned within MSFT's own 8-K press release) -- as opposed
+    # to a cross-mention, like MSFT mentioned in NVDA's earnings release. Self-mentions
+    # get downweighted in momentum scoring since a company talking about itself in its
+    # own press release isn't an independent signal the way outside coverage is.
+    is_self_mention = Column(Boolean, nullable=False, default=False, server_default="false")
 
     source = relationship("Source", back_populates="stock_mentions")
     stock = relationship("Stock", back_populates="mentions")

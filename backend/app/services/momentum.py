@@ -27,6 +27,16 @@ WATCHLIST_BASKETS = {
     "filing": FILING_SOURCE_TYPES,
 }
 
+# A company talking about itself in its own press release isn't an independent signal
+# the way outside coverage is, so self-mentions count for less toward momentum scoring
+# (frequency/growth/sentiment) -- though raw mention counts shown in the UI stay
+# unweighted so users see real totals, not a discounted number.
+SELF_MENTION_WEIGHT = 0.3
+
+
+def _mention_weight_expr(mention_model):
+    return case((mention_model.is_self_mention.is_(True), SELF_MENTION_WEIGHT), else_=1.0)
+
 
 def _compute_score(
     total_mentions: int,
@@ -68,11 +78,14 @@ async def refresh_stock_momentum(db: AsyncSession) -> None:
     stocks_result = await db.execute(select(Stock))
     stocks = stocks_result.scalars().all()
 
-    # Max total mentions for normalization
+    weight = _mention_weight_expr(StockMention)
+
+    # Max weighted mentions for normalization (self-mention-discounted, same basis the
+    # score itself is computed on).
     max_q = await db.execute(
-        select(func.count(StockMention.id)).group_by(StockMention.stock_id)
+        select(func.sum(weight)).group_by(StockMention.stock_id)
     )
-    max_mentions = max((row[0] for row in max_q), default=1)
+    max_mentions = max((row[0] for row in max_q), default=1) or 1
 
     for stock in stocks:
         total_q = await db.execute(
@@ -108,8 +121,37 @@ async def refresh_stock_momentum(db: AsyncSession) -> None:
         )
         unique_src = sources_q.scalar() or 0
 
+        # Weighted versions of the same stats, feeding the score only -- raw counts
+        # above are what gets stored/displayed so users see real totals.
+        w_total_q = await db.execute(
+            select(func.sum(weight)).where(StockMention.stock_id == stock.id)
+        )
+        w_total = w_total_q.scalar() or 0.0
+
+        w_recent_q = await db.execute(
+            select(func.sum(weight)).where(
+                and_(StockMention.stock_id == stock.id, StockMention.mentioned_at >= cutoff_7d)
+            )
+        )
+        w_recent = w_recent_q.scalar() or 0.0
+
+        w_older_q = await db.execute(
+            select(func.sum(weight)).where(
+                and_(StockMention.stock_id == stock.id, StockMention.mentioned_at >= cutoff_30d)
+            )
+        )
+        w_older = w_older_q.scalar() or 0.0
+
+        w_sent_q = await db.execute(
+            select(func.sum(StockMention.sentiment_score * weight)).where(
+                StockMention.stock_id == stock.id
+            )
+        )
+        w_sent_sum = w_sent_q.scalar() or 0.0
+        w_avg_sent = (w_sent_sum / w_total) if w_total else 0.0
+
         growth_rate = ((recent - (older / 4)) / max(older / 4, 1)) if older > 0 else (1.0 if recent > 0 else 0.0)
-        score = _compute_score(total, recent, older, avg_sent, unique_src, max_mentions)
+        score = _compute_score(w_total, w_recent, w_older, w_avg_sent, unique_src, max_mentions)
 
         existing = await db.execute(
             select(StockMomentum).where(StockMomentum.stock_id == stock.id)
@@ -155,6 +197,10 @@ async def _trending_by_category(
         else Source.type.notin_(FILING_SOURCE_TYPES)
     )
 
+    # Themes have no "self-mention" concept (no single company files a theme), only
+    # StockMention carries is_self_mention -- weight is 1.0 for everything else.
+    weight = _mention_weight_expr(mention_model) if hasattr(mention_model, "is_self_mention") else 1.0
+
     q = (
         select(
             parent_model,
@@ -163,6 +209,10 @@ async def _trending_by_category(
             func.sum(case((mention_model.mentioned_at >= cutoff_30d, 1), else_=0)).label("recent_30d"),
             func.avg(mention_model.sentiment_score).label("avg_sentiment"),
             func.count(distinct(mention_model.source_id)).label("unique_sources"),
+            func.sum(weight).label("w_total"),
+            func.sum(case((mention_model.mentioned_at >= cutoff_7d, weight), else_=0)).label("w_recent_7d"),
+            func.sum(case((mention_model.mentioned_at >= cutoff_30d, weight), else_=0)).label("w_recent_30d"),
+            func.sum(mention_model.sentiment_score * weight).label("w_sentiment_sum"),
         )
         .join(mention_model, mention_fk_col == parent_id_col)
         .join(Source, mention_model.source_id == Source.id)
@@ -171,7 +221,7 @@ async def _trending_by_category(
     )
 
     rows = (await db.execute(q)).all()
-    max_total = max((row.total for row in rows), default=1)
+    max_w_total = max((row.w_total or 0 for row in rows), default=1) or 1
 
     results = []
     for row in rows:
@@ -182,8 +232,13 @@ async def _trending_by_category(
         avg_sent = row.avg_sentiment or 0.0
         unique_src = row.unique_sources or 0
 
+        w_total = row.w_total or 0.0
+        w_recent = row.w_recent_7d or 0.0
+        w_older = row.w_recent_30d or 0.0
+        w_avg_sent = (row.w_sentiment_sum / w_total) if w_total else 0.0
+
         growth_rate = ((recent - (older / 4)) / max(older / 4, 1)) if older > 0 else (1.0 if recent > 0 else 0.0)
-        score = _compute_score(total, recent, older, avg_sent, unique_src, max_total)
+        score = _compute_score(w_total, w_recent, w_older, w_avg_sent, unique_src, max_w_total)
 
         if score < min_score:
             continue
@@ -245,6 +300,30 @@ async def get_stock_mention_breakdown(db: AsyncSession, stock_id) -> dict:
         )
         row = (await db.execute(q)).one()
         breakdown[category] = {
+            "mention_count": row.total or 0,
+            "avg_sentiment": round(row.avg_sentiment or 0.0, 1),
+            "unique_sources": row.unique_sources or 0,
+        }
+    return breakdown
+
+
+async def get_stock_self_vs_external_breakdown(db: AsyncSession, stock_id) -> dict:
+    """Mention count, sentiment, and source diversity split by self-mention (the company
+    talking about itself in its own filing) vs. external (mentioned by someone else, or
+    in general media) -- used on the stock landing page to show how much of a stock's
+    apparent momentum is the company's own press releases vs. independent coverage."""
+    breakdown = {}
+    for key, is_self in (("self", True), ("external", False)):
+        q = (
+            select(
+                func.count(StockMention.id).label("total"),
+                func.avg(StockMention.sentiment_score).label("avg_sentiment"),
+                func.count(distinct(StockMention.source_id)).label("unique_sources"),
+            )
+            .where(StockMention.stock_id == stock_id, StockMention.is_self_mention.is_(is_self))
+        )
+        row = (await db.execute(q)).one()
+        breakdown[key] = {
             "mention_count": row.total or 0,
             "avg_sentiment": round(row.avg_sentiment or 0.0, 1),
             "unique_sources": row.unique_sources or 0,
