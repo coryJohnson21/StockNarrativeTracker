@@ -9,11 +9,13 @@ from app.models.models import Stock, StockMomentum, StockMention, StockProfile, 
 from app.schemas.schemas import StockMomentumResponse, StockListResponse
 from app.services.momentum import (
     get_trending_stocks_by_category,
+    get_trending_stocks_by_channel,
     get_stock_mention_breakdown,
     get_stock_self_vs_external_breakdown,
     get_stock_mention_contexts,
     get_stock_mention_history,
     FILING_SOURCE_TYPES,
+    MEDIA_CHANNEL_SOURCE_TYPES,
 )
 from app.services import market_data
 from app.services.extraction import condense_company_description, generate_narrative_summary
@@ -29,11 +31,20 @@ async def get_trending_stocks(
     category: Optional[Literal["filing", "media"]] = Query(
         None, description="Filter to 'filing' (10-K/10-Q/8-K/earnings calls) or 'media' (YouTube, transcripts, etc.)"
     ),
+    channel: Optional[Literal["youtube", "podcast", "news", "reddit", "x"]] = Query(
+        None, description="Filter to a specific media channel within the 'media' category"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return stocks sorted by momentum score, optionally scoped to one source category."""
-    if category is not None:
+    """Return stocks sorted by momentum score, optionally scoped to one source category or channel."""
+    if channel is not None:
+        rows, total = await get_trending_stocks_by_channel(db, channel, limit, offset, min_score)
+    elif category is not None:
         rows, total = await get_trending_stocks_by_category(db, category, limit, offset, min_score)
+    else:
+        rows = None
+
+    if rows is not None:
         results = [
             StockMomentumResponse(
                 id=row["parent"].id,

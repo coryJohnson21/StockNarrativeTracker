@@ -6,7 +6,7 @@ import { Loader2, Layers } from "lucide-react";
 import { SentimentBadge } from "./SentimentBadge";
 import { MomentumBar } from "./MomentumBadge";
 import { SortableHeader } from "./SortableHeader";
-import { getTrendingThemes, type SourceCategory } from "@/lib/api";
+import { getTrendingThemes, type SourceCategory, type MediaChannel } from "@/lib/api";
 import { growthLabel, growthColor, timeAgo } from "@/lib/utils";
 import type { ThemeTrending } from "@/types";
 
@@ -14,6 +14,7 @@ interface Props {
   limit?: number;
   compact?: boolean;
   category?: SourceCategory;
+  channel?: MediaChannel;
 }
 
 type SortKey =
@@ -27,7 +28,7 @@ type SortKey =
 
 const STRING_KEYS: SortKey[] = ["name"];
 
-export function TrendingThemesTable({ limit = 20, compact = false, category }: Props) {
+export function TrendingThemesTable({ limit = 20, compact = false, category, channel }: Props) {
   const router = useRouter();
   const [themes, setThemes] = useState<ThemeTrending[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,11 +38,11 @@ export function TrendingThemesTable({ limit = 20, compact = false, category }: P
 
   useEffect(() => {
     setLoading(true);
-    getTrendingThemes({ limit, category })
+    getTrendingThemes({ limit, category, channel })
       .then((r) => setThemes(r.themes))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [limit, category]);
+  }, [limit, category, channel]);
 
   function handleSort(key: string) {
     const k = key as SortKey;
@@ -92,15 +93,15 @@ export function TrendingThemesTable({ limit = 20, compact = false, category }: P
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm table-fixed">
         <thead>
           <tr className="border-b border-border text-muted-foreground text-xs uppercase tracking-wide">
             <th className="text-left py-2 px-3 w-8">#</th>
             <SortableHeader label="Theme" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-            <SortableHeader label="Momentum" sortKey="score" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-            <SortableHeader label="Mentions" sortKey="mention_count" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
-            <SortableHeader label="7d Growth" sortKey="mention_growth_rate" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
-            <SortableHeader label="Sentiment" sortKey="avg_sentiment" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+            <SortableHeader label="Momentum" sortKey="score" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-32" />
+            <SortableHeader label="Mentions" sortKey="mention_count" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-16" />
+            <SortableHeader label="7d Growth" sortKey="mention_growth_rate" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-20" />
+            <SortableHeader label="Sentiment" sortKey="avg_sentiment" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-20" />
             {!compact && (
               <SortableHeader label="Sources" sortKey="unique_sources" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
             )}
@@ -117,8 +118,8 @@ export function TrendingThemesTable({ limit = 20, compact = false, category }: P
               onClick={() => router.push(`/themes/${encodeURIComponent(theme.name)}`)}
             >
               <td className="py-3 px-3 text-muted-foreground">{i + 1}</td>
-              <td className="py-3 px-3">
-                <span className="font-semibold text-foreground">{theme.name}</span>
+              <td className="py-3 px-3 max-w-0">
+                <span className="font-semibold text-foreground truncate block">{theme.name}</span>
               </td>
               <td className="py-3 px-3">
                 <MomentumBar score={theme.score} />

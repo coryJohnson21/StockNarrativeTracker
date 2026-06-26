@@ -165,6 +165,17 @@ class StockNarrative(Base):
     stock = relationship("Stock")
 
 
+class RedditFeed(Base):
+    """A subreddit polled periodically for new hot posts — each post becomes a Source
+    that runs through the text extraction pipeline (no audio, so no transcription step)."""
+    __tablename__ = "reddit_feeds"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    subreddit = Column(String(100), unique=True, nullable=False)
+    last_polled_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class WatchlistItem(Base):
     """A ticker the user wants pinned and tracked across media baskets
     (YouTube, news, Reddit/forums) and filings, independent of global momentum rankings."""
@@ -184,7 +195,7 @@ class PodcastFeed(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     url = Column(String(1000), unique=True, nullable=False)
     label = Column(String(200), nullable=False)
-    source_type = Column(String(20), default="news")
+    source_type = Column(String(20), default="podcast")
     last_polled_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

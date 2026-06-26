@@ -270,7 +270,11 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
     source.updated_at = datetime.utcnow()
     if not source.source_metadata:
         source.source_metadata = {}
-    source.source_metadata = {**source.source_metadata, "summary": extraction["summary"]}
+    source.source_metadata = {
+        **source.source_metadata,
+        "summary": extraction["summary"],
+        "calls": extraction.get("calls", []),
+    }
 
     await db.commit()
 

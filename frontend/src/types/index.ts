@@ -1,6 +1,6 @@
 export interface Source {
   id: string;
-  type: "youtube" | "upload" | "earnings_call" | "10-K" | "10-Q" | "8-K";
+  type: "youtube" | "upload" | "earnings_call" | "10-K" | "10-Q" | "8-K" | "podcast" | "news" | "reddit" | "twitter" | "x";
   url?: string;
   title?: string;
   channel?: string;
@@ -122,6 +122,14 @@ export interface PodcastFeed {
   last_polled_at?: string;
   created_at: string;
   episode_count: number;
+}
+
+export interface RedditFeed {
+  id: string;
+  subreddit: string;
+  last_polled_at?: string;
+  created_at: string;
+  post_count: number;
 }
 
 export interface Mention {

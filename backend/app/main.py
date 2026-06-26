@@ -6,13 +6,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.config import settings
-from app.database import engine, Base
-from app.routers import ingest, stocks, themes, sources, sec, watchlist, podcasts
+from app.database import engine, Base, AsyncSessionLocal
+from app.routers import ingest, stocks, themes, sources, sec, watchlist, podcasts, reddit
 from app.tasks.sec_scan import scan_all_sp500
 from app.tasks.podcast_poll import poll_all_feeds
+from app.tasks.reddit_poll import poll_all_subreddits
+from app.models.models import RedditFeed
+from sqlalchemy import select
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+_DEFAULT_SUBREDDITS = ["stocks", "wallstreetbets"]
+
+
+async def _seed_reddit_feeds() -> None:
+    async with AsyncSessionLocal() as db:
+        for sub in _DEFAULT_SUBREDDITS:
+            existing = (await db.execute(select(RedditFeed).where(RedditFeed.subreddit == sub))).scalar_one_or_none()
+            if existing is None:
+                db.add(RedditFeed(subreddit=sub))
+        await db.commit()
+    logger.info("Reddit feeds seeded")
 
 
 async def _periodic_sec_scan():
@@ -37,6 +52,15 @@ async def _periodic_podcast_poll():
             logger.exception("Periodic podcast poll failed")
 
 
+async def _periodic_reddit_poll():
+    while True:
+        await asyncio.sleep(settings.reddit_poll_interval_minutes * 60)
+        try:
+            await poll_all_subreddits()
+        except Exception:
+            logger.exception("Periodic Reddit poll failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create tables on startup (for dev; use alembic in prod)
@@ -45,11 +69,14 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database ready")
 
+    await _seed_reddit_feeds()
     scan_task = asyncio.create_task(_periodic_sec_scan())
     podcast_task = asyncio.create_task(_periodic_podcast_poll())
+    reddit_task = asyncio.create_task(_periodic_reddit_poll())
     yield
     scan_task.cancel()
     podcast_task.cancel()
+    reddit_task.cancel()
     await engine.dispose()
 
 
@@ -75,6 +102,7 @@ app.include_router(sources.router, prefix="/api")
 app.include_router(sec.router, prefix="/api")
 app.include_router(watchlist.router, prefix="/api")
 app.include_router(podcasts.router, prefix="/api")
+app.include_router(reddit.router, prefix="/api")
 
 
 @app.get("/api/health")

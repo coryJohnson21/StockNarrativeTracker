@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     sec_contact_email: str = "admin@example.com"
     sec_scan_interval_hours: int = 24
     podcast_poll_interval_minutes: int = 60
+    reddit_poll_interval_minutes: int = 120
 
     class Config:
         env_file = ".env"

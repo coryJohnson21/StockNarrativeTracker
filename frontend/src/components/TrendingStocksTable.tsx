@@ -6,7 +6,7 @@ import { Loader2, TrendingUp } from "lucide-react";
 import { SentimentBadge } from "./SentimentBadge";
 import { MomentumBar } from "./MomentumBadge";
 import { SortableHeader } from "./SortableHeader";
-import { getTrendingStocks, type SourceCategory } from "@/lib/api";
+import { getTrendingStocks, type SourceCategory, type MediaChannel } from "@/lib/api";
 import { growthLabel, growthColor, timeAgo } from "@/lib/utils";
 import type { StockTrending } from "@/types";
 
@@ -14,6 +14,7 @@ interface Props {
   limit?: number;
   compact?: boolean;
   category?: SourceCategory;
+  channel?: MediaChannel;
 }
 
 type SortKey =
@@ -28,7 +29,7 @@ type SortKey =
 
 const STRING_KEYS: SortKey[] = ["ticker", "company_name"];
 
-export function TrendingStocksTable({ limit = 20, compact = false, category }: Props) {
+export function TrendingStocksTable({ limit = 20, compact = false, category, channel }: Props) {
   const router = useRouter();
   const [stocks, setStocks] = useState<StockTrending[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,11 +39,11 @@ export function TrendingStocksTable({ limit = 20, compact = false, category }: P
 
   useEffect(() => {
     setLoading(true);
-    getTrendingStocks({ limit, category })
+    getTrendingStocks({ limit, category, channel })
       .then((r) => setStocks(r.stocks))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [limit, category]);
+  }, [limit, category, channel]);
 
   function handleSort(key: string) {
     const k = key as SortKey;
@@ -93,7 +94,7 @@ export function TrendingStocksTable({ limit = 20, compact = false, category }: P
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm table-fixed">
         <thead>
           <tr className="border-b border-border text-muted-foreground text-xs uppercase tracking-wide">
             <th className="text-left py-2 px-3 w-8">#</th>
@@ -101,10 +102,10 @@ export function TrendingStocksTable({ limit = 20, compact = false, category }: P
             {!compact && (
               <SortableHeader label="Company" sortKey="company_name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
             )}
-            <SortableHeader label="Momentum" sortKey="score" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-            <SortableHeader label="Mentions" sortKey="mention_count" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
-            <SortableHeader label="7d Growth" sortKey="mention_growth_rate" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
-            <SortableHeader label="Sentiment" sortKey="avg_sentiment" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+            <SortableHeader label="Momentum" sortKey="score" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-32" />
+            <SortableHeader label="Mentions" sortKey="mention_count" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-16" />
+            <SortableHeader label="7d Growth" sortKey="mention_growth_rate" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-20" />
+            <SortableHeader label="Sentiment" sortKey="avg_sentiment" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-20" />
             {!compact && (
               <SortableHeader label="Sources" sortKey="unique_sources" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
             )}
@@ -121,11 +122,11 @@ export function TrendingStocksTable({ limit = 20, compact = false, category }: P
               onClick={() => router.push(`/stocks/${stock.ticker}`)}
             >
               <td className="py-3 px-3 text-muted-foreground">{i + 1}</td>
-              <td className="py-3 px-3">
-                <span className="font-bold text-foreground font-mono">{stock.ticker}</span>
+              <td className="py-3 px-3 max-w-0">
+                <span className="font-bold text-foreground font-mono truncate block">{stock.ticker}</span>
               </td>
               {!compact && (
-                <td className="py-3 px-3 text-muted-foreground max-w-[200px] truncate">
+                <td className="py-3 px-3 text-muted-foreground max-w-0 truncate">
                   {stock.company_name || "—"}
                 </td>
               )}

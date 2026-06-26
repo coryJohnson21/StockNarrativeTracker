@@ -151,6 +151,27 @@ class PodcastFeedListResponse(BaseModel):
     feeds: List[PodcastFeedResponse]
 
 
+# --- Reddit Feeds ---
+
+class RedditFeedAddRequest(BaseModel):
+    subreddit: str
+
+
+class RedditFeedResponse(BaseModel):
+    id: UUID
+    subreddit: str
+    last_polled_at: Optional[datetime]
+    created_at: datetime
+    post_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class RedditFeedListResponse(BaseModel):
+    feeds: List[RedditFeedResponse]
+
+
 # --- Dashboard Stats ---
 
 class DashboardStats(BaseModel):

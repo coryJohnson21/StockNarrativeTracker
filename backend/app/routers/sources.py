@@ -4,8 +4,9 @@ from sqlalchemy import select, func, desc
 from typing import Optional
 
 from app.database import get_db
-from app.models.models import Source, Transcript
+from app.models.models import Source, Transcript, StockMention, ThemeMention, Stock, Theme
 from app.schemas.schemas import SourceResponse, SourceListResponse
+from sqlalchemy.orm import selectinload
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -56,6 +57,45 @@ async def get_transcript(source_id: str, db: AsyncSession = Depends(get_db)):
         "content": transcript.content,
         "language": transcript.language,
         "created_at": transcript.created_at,
+    }
+
+
+@router.get("/{source_id}/extractions")
+async def get_source_extractions(source_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Source).where(Source.id == source_id))
+    source = result.scalar_one_or_none()
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    stock_rows = await db.execute(
+        select(StockMention, Stock.ticker, Stock.company_name)
+        .join(Stock, StockMention.stock_id == Stock.id)
+        .where(StockMention.source_id == source_id)
+        .order_by(StockMention.sentiment_score.desc())
+    )
+    stocks = [
+        {"ticker": ticker, "company": company, "sentiment": round(m.sentiment_score or 0), "context": m.context}
+        for m, ticker, company in stock_rows.all()
+    ]
+
+    theme_rows = await db.execute(
+        select(ThemeMention, Theme.name)
+        .join(Theme, ThemeMention.theme_id == Theme.id)
+        .where(ThemeMention.source_id == source_id)
+        .order_by(ThemeMention.sentiment_score.desc())
+    )
+    themes = [
+        {"name": name, "sentiment": round(m.sentiment_score or 0), "context": m.context}
+        for m, name in theme_rows.all()
+    ]
+
+    metadata = source.source_metadata or {}
+    return {
+        "source_id": source_id,
+        "summary": metadata.get("summary"),
+        "calls": metadata.get("calls", []),
+        "stocks": stocks,
+        "themes": themes,
     }
 
 

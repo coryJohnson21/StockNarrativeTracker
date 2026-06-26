@@ -1,4 +1,4 @@
-import type { Source, StockTrending, ThemeTrending, DashboardStats, Mention, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed } from "@/types";
+import type { Source, StockTrending, ThemeTrending, DashboardStats, Mention, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, RedditFeed } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -69,21 +69,36 @@ export async function deleteSource(id: string): Promise<void> {
   await apiFetch(`/api/sources/${id}`, { method: "DELETE" });
 }
 
+export interface SourceExtractions {
+  source_id: string;
+  summary?: string;
+  calls: { ticker: string; call: string; price_target?: number; reasoning: string }[];
+  stocks: { ticker: string; company: string; sentiment: number; context: string }[];
+  themes: { name: string; sentiment: number; context: string }[];
+}
+
+export async function getSourceExtractions(id: string): Promise<SourceExtractions> {
+  return apiFetch(`/api/sources/${id}/extractions`);
+}
+
 // --- Stocks ---
 
 export type SourceCategory = "filing" | "media";
+export type MediaChannel = "youtube" | "podcast" | "news" | "reddit" | "x";
 
 export async function getTrendingStocks(params?: {
   limit?: number;
   offset?: number;
   min_score?: number;
   category?: SourceCategory;
+  channel?: MediaChannel;
 }): Promise<{ stocks: StockTrending[]; total: number }> {
   const q = new URLSearchParams();
   if (params?.limit) q.set("limit", String(params.limit));
   if (params?.offset) q.set("offset", String(params.offset));
   if (params?.min_score !== undefined) q.set("min_score", String(params.min_score));
   if (params?.category) q.set("category", params.category);
+  if (params?.channel) q.set("channel", params.channel);
   return apiFetch(`/api/stocks/trending?${q}`);
 }
 
@@ -130,12 +145,14 @@ export async function getTrendingThemes(params?: {
   offset?: number;
   min_score?: number;
   category?: SourceCategory;
+  channel?: MediaChannel;
 }): Promise<{ themes: ThemeTrending[]; total: number }> {
   const q = new URLSearchParams();
   if (params?.limit) q.set("limit", String(params.limit));
   if (params?.offset) q.set("offset", String(params.offset));
   if (params?.min_score !== undefined) q.set("min_score", String(params.min_score));
   if (params?.category) q.set("category", params.category);
+  if (params?.channel) q.set("channel", params.channel);
   return apiFetch(`/api/themes/trending?${q}`);
 }
 
@@ -193,6 +210,27 @@ export async function removePodcastFeed(id: string): Promise<void> {
 
 export async function pollPodcastFeedNow(id: string): Promise<{ status: string; detail: string }> {
   return apiFetch(`/api/podcasts/${id}/poll`, { method: "POST" });
+}
+
+// --- Reddit Feeds ---
+
+export async function getRedditFeeds(): Promise<{ feeds: RedditFeed[] }> {
+  return apiFetch("/api/reddit");
+}
+
+export async function addRedditFeed(subreddit: string): Promise<RedditFeed> {
+  return apiFetch("/api/reddit", {
+    method: "POST",
+    body: JSON.stringify({ subreddit }),
+  });
+}
+
+export async function removeRedditFeed(id: string): Promise<void> {
+  await apiFetch(`/api/reddit/${id}`, { method: "DELETE" });
+}
+
+export async function pollRedditFeedNow(id: string): Promise<{ status: string; detail: string }> {
+  return apiFetch(`/api/reddit/${id}/poll`, { method: "POST" });
 }
 
 // --- Dashboard ---

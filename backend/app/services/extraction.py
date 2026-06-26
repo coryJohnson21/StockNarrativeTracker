@@ -20,27 +20,71 @@ async def _create_with_retry(client: openai.AsyncOpenAI, max_retries: int = 8, *
                 raise
             await asyncio.sleep(wait)
 
-EXTRACTION_PROMPT = """You are a financial analyst AI. Analyze this financial media transcript and extract investment-relevant information.
+EXTRACTION_PROMPT = """You are a senior financial analyst reviewing a financial media transcript. Your job is thorough extraction — completeness matters more than brevity.
 
-Source title: {title}
+Source: {title}
 
-Return a JSON object with EXACTLY this structure (no extra fields):
+Step 1 — Before writing any JSON, read the full transcript and make a mental list of EVERY company or stock ticker mentioned anywhere, even once in passing.
+
+Step 2 — Return a JSON object with EXACTLY this structure (no extra fields):
 {{
   "stocks": [
-    {{"ticker": "NVDA", "company": "NVIDIA Corporation", "sentiment": 85, "context": "brief context quote under 200 chars"}}
+    {{
+      "ticker": "NVDA",
+      "company": "NVIDIA Corporation",
+      "sentiment": 75,
+      "context": "1-2 sentence paraphrase of what was specifically said about this stock"
+    }}
   ],
   "themes": [
-    {{"name": "Artificial Intelligence", "sentiment": 75, "context": "brief context under 200 chars"}}
+    {{
+      "name": "Artificial Intelligence",
+      "sentiment": 70,
+      "context": "1-2 sentence paraphrase of the key point made about this theme"
+    }}
   ],
-  "summary": "2-3 sentence investment-focused summary highlighting key bullish/bearish calls"
+  "calls": [
+    {{
+      "ticker": "NVDA",
+      "call": "buy",
+      "price_target": null,
+      "reasoning": "1-2 sentence explanation of the investment thesis or catalyst cited"
+    }}
+  ],
+  "summary": "12-sentence summary following the structure below"
 }}
 
-Rules:
-- Sentiment: -100 (extremely bearish) to +100 (extremely bullish), 0 = neutral
-- Only include stocks explicitly mentioned; infer tickers when company name is clear
-- Normalize theme names to standard categories: Artificial Intelligence, Machine Learning, Cloud Computing, Semiconductors, Nuclear Energy, Renewable Energy, Cybersecurity, Digital Payments, Fintech, Biotechnology, Pharmaceutical, Defense & Aerospace, Real Estate, Inflation & Macro, Interest Rates, Federal Reserve Policy, Supply Chain, Data Centers, Electric Vehicles, Autonomous Driving, Consumer Discretionary, Energy Transition, Commodities
-- Include a theme even if mentioned briefly; sentiment reflects overall tone
-- Summary must focus on specific investment theses, not general topics
+STOCKS FIELD — this is the most important field. Rules:
+  - Include every single company or ticker named in the transcript, regardless of how briefly
+  - Examples of what to include: stocks mentioned as gaining/falling, index components named, stocks used as comparisons, earnings reports discussed, analyst mentions, portfolio holdings named
+  - Infer tickers from company names: "Alphabet" → GOOGL, "Meta" → META, "Advanced Micro" or "AMD" → AMD, "Micron" → MU, "FedEx" → FDX, "IBM" → IBM, "Tesla" → TSLA
+  - A stock appearing 3 times and one appearing once both belong in the array
+  - Do NOT limit to the "main" story — capture everything
+
+SUMMARY — write exactly 12 sentences in this order:
+  Sentences 1-2: Overall market backdrop and macro environment discussed in this episode
+  Sentences 3-4: Major investment themes and sectors that received significant airtime
+  Sentences 5-7: Key bullish stock calls and the specific reasoning or catalysts cited for each
+  Sentences 8-9: Bearish concerns, risks flagged, or stocks explicitly cautioned against
+  Sentences 10-11: Notable forward-looking predictions — price targets, earnings estimates, Fed/rate calls, specific timelines
+  Sentence 12: One-sentence takeaway on the overall investment tone and actionability of this episode
+
+SENTIMENT SCALE:
+  +80 to +100 — Explicit strong buy, extremely bullish thesis
+  +50 to +79  — Moderately bullish, positive coverage with clear upside cited
+  +20 to +49  — Mildly positive, mentioned favorably
+  -19 to +19  — Neutral, informational mention with no directional bias
+  -20 to -49  — Mildly negative, concerns raised
+  -50 to -79  — Moderately bearish, negative thesis
+  -80 to -100 — Explicit sell / strongly bearish
+
+CALLS RULES:
+  - Only include explicit recommendations (buy, sell, hold, avoid, watch)
+  - "call" must be exactly one of: buy, sell, hold, avoid, watch
+  - "price_target" is a number or null — only populate if a specific dollar figure was stated
+  - Return empty array if no explicit calls were made
+
+THEMES: normalize to — Artificial Intelligence, Machine Learning, Cloud Computing, Semiconductors, Nuclear Energy, Renewable Energy, Cybersecurity, Digital Payments, Fintech, Biotechnology, Pharmaceutical, Defense & Aerospace, Real Estate, Inflation & Macro, Interest Rates, Federal Reserve Policy, Supply Chain, Data Centers, Electric Vehicles, Autonomous Driving, Consumer Discretionary, Energy Transition, Commodities
 
 Transcript:
 {transcript}"""
@@ -50,7 +94,7 @@ async def extract_from_transcript(transcript: str, title: str = "") -> dict:
     """Use GPT-4o to extract stocks, themes, and generate summary."""
     client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
 
-    truncated = transcript[:12000] if len(transcript) > 12000 else transcript
+    truncated = transcript[:100000] if len(transcript) > 100000 else transcript
 
     response = await _create_with_retry(
         client,
@@ -66,7 +110,7 @@ async def extract_from_transcript(transcript: str, title: str = "") -> dict:
         ],
         response_format={"type": "json_object"},
         temperature=0.1,
-        max_tokens=2000,
+        max_tokens=4000,
     )
 
     raw = response.choices[0].message.content
@@ -96,10 +140,22 @@ async def extract_from_transcript(transcript: str, title: str = "") -> dict:
                 }
             )
 
+    calls = []
+    for c in result.get("calls", []):
+        if isinstance(c, dict) and c.get("ticker") and c.get("call") in ("buy", "sell", "hold", "avoid", "watch"):
+            pt = c.get("price_target")
+            calls.append({
+                "ticker": str(c["ticker"]).upper().strip()[:10],
+                "call": c["call"],
+                "price_target": float(pt) if pt is not None and str(pt).replace(".", "").isdigit() else None,
+                "reasoning": str(c.get("reasoning", ""))[:400],
+            })
+
     return {
         "stocks": stocks,
         "themes": themes,
-        "summary": str(result.get("summary", ""))[:1000],
+        "calls": calls,
+        "summary": str(result.get("summary", ""))[:3000],
     }
 
 

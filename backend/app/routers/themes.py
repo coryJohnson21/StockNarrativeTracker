@@ -8,6 +8,7 @@ from app.models.models import Theme, ThemeMomentum, ThemeMention, ThemeProfile
 from app.schemas.schemas import ThemeMomentumResponse, ThemeListResponse
 from app.services.momentum import (
     get_trending_themes_by_category,
+    get_trending_themes_by_channel,
     get_theme_mention_breakdown,
     get_top_stocks_for_theme,
     FILING_SOURCE_TYPES,
@@ -25,11 +26,20 @@ async def get_trending_themes(
     category: Optional[Literal["filing", "media"]] = Query(
         None, description="Filter to 'filing' (10-K/10-Q/8-K/earnings calls) or 'media' (YouTube, transcripts, etc.)"
     ),
+    channel: Optional[Literal["youtube", "podcast", "news", "reddit", "x"]] = Query(
+        None, description="Filter to a specific media channel within the 'media' category"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return themes sorted by momentum score, optionally scoped to one source category."""
-    if category is not None:
+    """Return themes sorted by momentum score, optionally scoped to one source category or channel."""
+    if channel is not None:
+        rows, total = await get_trending_themes_by_channel(db, channel, limit, offset, min_score)
+    elif category is not None:
         rows, total = await get_trending_themes_by_category(db, category, limit, offset, min_score)
+    else:
+        rows = None
+
+    if rows is not None:
         results = [
             ThemeMomentumResponse(
                 id=row["parent"].id,

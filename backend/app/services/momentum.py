@@ -17,14 +17,25 @@ FILING_SOURCE_TYPES = ("10-K", "10-Q", "8-K", "earnings_call")
 # are tagged at ingestion time (YouTube tab -> "youtube", Paste Transcript tab lets the
 # user pick "news" or "reddit", SEC Filings tab -> 10-K/10-Q/8-K).
 YOUTUBE_SOURCE_TYPES = ("youtube",)
+PODCAST_SOURCE_TYPES = ("podcast",)
 NEWS_SOURCE_TYPES = ("news", "cnbc", "bloomberg")
 REDDIT_SOURCE_TYPES = ("reddit", "wallstreetbets", "r/wallstreetbets", "r/stocks")
+TWITTER_SOURCE_TYPES = ("twitter", "x")
 
 WATCHLIST_BASKETS = {
     "youtube": YOUTUBE_SOURCE_TYPES,
     "news": NEWS_SOURCE_TYPES,
     "reddit": REDDIT_SOURCE_TYPES,
     "filing": FILING_SOURCE_TYPES,
+}
+
+# Mapping used by the /trending?channel= filter on the dashboard media breakout.
+MEDIA_CHANNEL_SOURCE_TYPES: dict[str, tuple[str, ...]] = {
+    "youtube": YOUTUBE_SOURCE_TYPES,
+    "podcast": PODCAST_SOURCE_TYPES,
+    "news": NEWS_SOURCE_TYPES,
+    "reddit": REDDIT_SOURCE_TYPES,
+    "x": TWITTER_SOURCE_TYPES,
 }
 
 # A company talking about itself in its own press release isn't an independent signal
@@ -174,28 +185,22 @@ async def refresh_stock_momentum(db: AsyncSession) -> None:
     await db.commit()
 
 
-async def _trending_by_category(
+async def _trending_by_type_filter(
     db: AsyncSession,
     mention_model,
     parent_model,
     parent_id_col,
     mention_fk_col,
-    category: str,
+    type_filter,
     limit: int,
     offset: int,
     min_score: float,
 ) -> tuple[list[dict], int]:
-    """Live-aggregate momentum for one category (filing vs. media) without touching
+    """Live-aggregate momentum for an arbitrary source-type filter without touching
     the precomputed momentum tables, which stay aggregate-across-everything."""
     now = datetime.utcnow()
     cutoff_7d = now - timedelta(days=7)
     cutoff_30d = now - timedelta(days=30)
-
-    type_filter = (
-        Source.type.in_(FILING_SOURCE_TYPES)
-        if category == "filing"
-        else Source.type.notin_(FILING_SOURCE_TYPES)
-    )
 
     # Themes have no "self-mention" concept (no single company files a theme), only
     # StockMention carries is_self_mention -- weight is 1.0 for everything else.
@@ -263,19 +268,47 @@ async def _trending_by_category(
     return results[offset:offset + limit], total_count
 
 
+def _category_type_filter(category: str):
+    if category == "filing":
+        return Source.type.in_(FILING_SOURCE_TYPES)
+    return Source.type.notin_(FILING_SOURCE_TYPES)
+
+
 async def get_trending_stocks_by_category(
     db: AsyncSession, category: str, limit: int = 50, offset: int = 0, min_score: float = 0.0
 ) -> tuple[list[dict], int]:
-    return await _trending_by_category(
-        db, StockMention, Stock, Stock.id, StockMention.stock_id, category, limit, offset, min_score
+    return await _trending_by_type_filter(
+        db, StockMention, Stock, Stock.id, StockMention.stock_id,
+        _category_type_filter(category), limit, offset, min_score,
     )
 
 
 async def get_trending_themes_by_category(
     db: AsyncSession, category: str, limit: int = 50, offset: int = 0, min_score: float = 0.0
 ) -> tuple[list[dict], int]:
-    return await _trending_by_category(
-        db, ThemeMention, Theme, Theme.id, ThemeMention.theme_id, category, limit, offset, min_score
+    return await _trending_by_type_filter(
+        db, ThemeMention, Theme, Theme.id, ThemeMention.theme_id,
+        _category_type_filter(category), limit, offset, min_score,
+    )
+
+
+async def get_trending_stocks_by_channel(
+    db: AsyncSession, channel: str, limit: int = 50, offset: int = 0, min_score: float = 0.0
+) -> tuple[list[dict], int]:
+    types = MEDIA_CHANNEL_SOURCE_TYPES[channel]
+    return await _trending_by_type_filter(
+        db, StockMention, Stock, Stock.id, StockMention.stock_id,
+        Source.type.in_(types), limit, offset, min_score,
+    )
+
+
+async def get_trending_themes_by_channel(
+    db: AsyncSession, channel: str, limit: int = 50, offset: int = 0, min_score: float = 0.0
+) -> tuple[list[dict], int]:
+    types = MEDIA_CHANNEL_SOURCE_TYPES[channel]
+    return await _trending_by_type_filter(
+        db, ThemeMention, Theme, Theme.id, ThemeMention.theme_id,
+        Source.type.in_(types), limit, offset, min_score,
     )
 
 
