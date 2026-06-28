@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     sec_scan_interval_hours: int = 24
     podcast_poll_interval_minutes: int = 60
     reddit_poll_interval_minutes: int = 120
+    # Set ENABLE_AUTO_INGEST=true in .env to allow periodic background pulls.
+    # Defaults to false to avoid unexpected OpenAI spend.
+    enable_auto_ingest: bool = False
 
     class Config:
         env_file = ".env"

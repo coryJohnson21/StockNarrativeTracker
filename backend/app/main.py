@@ -70,13 +70,19 @@ async def lifespan(app: FastAPI):
     logger.info("Database ready")
 
     await _seed_reddit_feeds()
-    scan_task = asyncio.create_task(_periodic_sec_scan())
-    podcast_task = asyncio.create_task(_periodic_podcast_poll())
-    reddit_task = asyncio.create_task(_periodic_reddit_poll())
+    tasks = []
+    if settings.enable_auto_ingest:
+        tasks = [
+            asyncio.create_task(_periodic_sec_scan()),
+            asyncio.create_task(_periodic_podcast_poll()),
+            asyncio.create_task(_periodic_reddit_poll()),
+        ]
+        logger.info("Auto-ingest enabled: periodic SEC/podcast/Reddit polling started")
+    else:
+        logger.info("Auto-ingest disabled (ENABLE_AUTO_INGEST not set); use on-demand endpoints")
     yield
-    scan_task.cancel()
-    podcast_task.cancel()
-    reddit_task.cancel()
+    for t in tasks:
+        t.cancel()
     await engine.dispose()
 
 
