@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +44,20 @@ MEDIA_CHANNEL_SOURCE_TYPES: dict[str, tuple[str, ...]] = {
 # (frequency/growth/sentiment) -- though raw mention counts shown in the UI stay
 # unweighted so users see real totals, not a discounted number.
 SELF_MENTION_WEIGHT = 0.3
+
+LABEL_ORDER = ("positive", "building", "mixed", "fading", "negative")
+
+
+def sentiment_to_label(avg_sentiment: float) -> str:
+    if avg_sentiment >= 50:
+        return "positive"
+    elif avg_sentiment >= 20:
+        return "building"
+    elif avg_sentiment > -20:
+        return "mixed"
+    elif avg_sentiment > -50:
+        return "fading"
+    return "negative"
 
 
 def _mention_weight_expr(mention_model):
@@ -163,6 +178,7 @@ async def refresh_stock_momentum(db: AsyncSession) -> None:
 
         growth_rate = ((recent - (older / 4)) / max(older / 4, 1)) if older > 0 else (1.0 if recent > 0 else 0.0)
         score = _compute_score(w_total, w_recent, w_older, w_avg_sent, unique_src, max_mentions)
+        new_label = sentiment_to_label(avg_sent)
 
         existing = await db.execute(
             select(StockMomentum).where(StockMomentum.stock_id == stock.id)
@@ -173,6 +189,9 @@ async def refresh_stock_momentum(db: AsyncSession) -> None:
             momentum = StockMomentum(stock_id=stock.id)
             db.add(momentum)
 
+        if momentum.label and momentum.label != new_label:
+            momentum.previous_label = momentum.label
+        momentum.label = new_label
         momentum.score = score
         momentum.mention_count = total
         momentum.mention_count_7d = recent
@@ -195,6 +214,7 @@ async def _trending_by_type_filter(
     limit: int,
     offset: int,
     min_score: float,
+    extra_filter=None,
 ) -> tuple[list[dict], int]:
     """Live-aggregate momentum for an arbitrary source-type filter without touching
     the precomputed momentum tables, which stay aggregate-across-everything."""
@@ -224,6 +244,8 @@ async def _trending_by_type_filter(
         .where(type_filter)
         .group_by(parent_id_col)
     )
+    if extra_filter is not None:
+        q = q.where(extra_filter)
 
     rows = (await db.execute(q)).all()
     max_w_total = max((row.w_total or 0 for row in rows), default=1) or 1
@@ -289,6 +311,7 @@ async def get_trending_themes_by_category(
     return await _trending_by_type_filter(
         db, ThemeMention, Theme, Theme.id, ThemeMention.theme_id,
         _category_type_filter(category), limit, offset, min_score,
+        extra_filter=Theme.is_tracked.is_(True),
     )
 
 
@@ -309,6 +332,7 @@ async def get_trending_themes_by_channel(
     return await _trending_by_type_filter(
         db, ThemeMention, Theme, Theme.id, ThemeMention.theme_id,
         Source.type.in_(types), limit, offset, min_score,
+        extra_filter=Theme.is_tracked.is_(True),
     )
 
 
@@ -553,6 +577,7 @@ async def refresh_theme_momentum(db: AsyncSession) -> None:
 
         growth_rate = ((recent - (older / 4)) / max(older / 4, 1)) if older > 0 else (1.0 if recent > 0 else 0.0)
         score = _compute_score(total, recent, older, avg_sent, unique_src, max_mentions)
+        new_label = sentiment_to_label(avg_sent)
 
         existing = await db.execute(
             select(ThemeMomentum).where(ThemeMomentum.theme_id == theme.id)
@@ -562,6 +587,10 @@ async def refresh_theme_momentum(db: AsyncSession) -> None:
         if momentum is None:
             momentum = ThemeMomentum(theme_id=theme.id)
             db.add(momentum)
+
+        if momentum.label and momentum.label != new_label:
+            momentum.previous_label = momentum.label
+        momentum.label = new_label
 
         momentum.score = score
         momentum.mention_count = total
@@ -573,3 +602,65 @@ async def refresh_theme_momentum(db: AsyncSession) -> None:
         momentum.computed_at = now
 
     await db.commit()
+
+
+async def refresh_market_data_cache(db: AsyncSession) -> None:
+    """Fetch and cache current price + market cap for all stocks with a momentum record.
+    Called on a slow schedule — not during per-source processing to avoid hammering Yahoo
+    Finance on every new ingest."""
+    from app.services import market_data as _market_data
+
+    rows = (await db.execute(
+        select(Stock, StockMomentum).join(StockMomentum, Stock.id == StockMomentum.stock_id)
+    )).all()
+
+    for stock, momentum in rows:
+        try:
+            md = await _market_data.fetch_market_data(stock.ticker)
+            price = md.get("current_price") if md else None
+            stock.is_public = bool(price)
+            if price:
+                momentum.current_price = price
+                momentum.market_cap = md.get("market_cap")
+            else:
+                momentum.current_price = None
+                momentum.market_cap = None
+        except Exception:
+            pass
+        await asyncio.sleep(0.25)
+
+    await db.commit()
+
+
+async def get_stock_momentum_extras(db: AsyncSession, stock_ids: list) -> dict:
+    """Batch-fetch previous_label, current_price, market_cap from StockMomentum for a
+    list of stock IDs — used to enrich live-aggregate trending query results."""
+    if not stock_ids:
+        return {}
+    q = select(
+        StockMomentum.stock_id,
+        StockMomentum.previous_label,
+        StockMomentum.current_price,
+        StockMomentum.market_cap,
+    ).where(StockMomentum.stock_id.in_(stock_ids))
+    rows = (await db.execute(q)).all()
+    return {
+        row.stock_id: {
+            "previous_label": row.previous_label,
+            "current_price": row.current_price,
+            "market_cap": row.market_cap,
+        }
+        for row in rows
+    }
+
+
+async def get_theme_momentum_extras(db: AsyncSession, theme_ids: list) -> dict:
+    """Batch-fetch previous_label from ThemeMomentum for a list of theme IDs -- used to
+    enrich live-aggregate trending query results, same purpose as get_stock_momentum_extras."""
+    if not theme_ids:
+        return {}
+    q = select(ThemeMomentum.theme_id, ThemeMomentum.previous_label).where(
+        ThemeMomentum.theme_id.in_(theme_ids)
+    )
+    rows = (await db.execute(q)).all()
+    return {row.theme_id: {"previous_label": row.previous_label} for row in rows}

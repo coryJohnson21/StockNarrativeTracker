@@ -100,7 +100,7 @@ function StocksPageContent() {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">All Tracked Stocks</CardTitle>
           <CardDescription>
-            Click any row to see the AI-generated investment summary. Momentum score: 0–100.
+            Click any row for the full narrative analysis and mention history.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">

@@ -48,6 +48,7 @@ class Stock(Base):
     ticker = Column(String(10), unique=True, nullable=False)
     company_name = Column(Text)
     sector = Column(Text)
+    is_public = Column(Boolean, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     mentions = relationship("StockMention", back_populates="stock", cascade="all, delete-orphan")
@@ -60,6 +61,11 @@ class Theme(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(100), unique=True, nullable=False)
     description = Column(Text)
+    # Whether this theme is on the user's curated tracked list -- shown on the trending
+    # page and recognized by name in future extraction. Themes GPT-4o discovers on its
+    # own that aren't already tracked are still created (as a candidate pool) but start
+    # untracked/hidden until the user promotes them via the Add Theme flow.
+    is_tracked = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     mentions = relationship("ThemeMention", back_populates="theme", cascade="all, delete-orphan")
@@ -114,6 +120,10 @@ class StockMomentum(Base):
     avg_sentiment = Column(Float, default=0.0)
     unique_sources = Column(Integer, default=0)
     ai_summary = Column(Text)
+    label = Column(String(20))
+    previous_label = Column(String(20))
+    current_price = Column(Float)
+    market_cap = Column(Float)
     computed_at = Column(DateTime, default=datetime.utcnow)
 
     stock = relationship("Stock", back_populates="momentum")
@@ -143,6 +153,10 @@ class ThemeProfile(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     theme_id = Column(UUID(as_uuid=True), ForeignKey("themes.id", ondelete="CASCADE"), unique=True)
     description = Column(Text)
+    # AI-generated ripple-effect analysis: {"rising": [...], "falling": [...]}, each entry
+    # {target, target_type (theme/stock/market), direction (up/down), label, rationale}.
+    # Cached alongside description since it's the same "expensive to regenerate" shape.
+    impact_analysis = Column(JSONB, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     theme = relationship("Theme")
@@ -214,6 +228,8 @@ class ThemeMomentum(Base):
     avg_sentiment = Column(Float, default=0.0)
     unique_sources = Column(Integer, default=0)
     ai_summary = Column(Text)
+    label = Column(String(20))
+    previous_label = Column(String(20))
     computed_at = Column(DateTime, default=datetime.utcnow)
 
     theme = relationship("Theme", back_populates="momentum")

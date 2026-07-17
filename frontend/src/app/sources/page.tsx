@@ -36,8 +36,8 @@ function sentimentLabel(score: number) {
   return { label: "Neutral", color: "text-muted-foreground" };
 }
 
-function isMediaSource(type: string) {
-  return ["podcast", "news", "reddit", "youtube"].includes(type);
+function hasExtractionPanel(type: string) {
+  return ["podcast", "news", "reddit", "youtube", "10-K", "10-Q", "8-K"].includes(type);
 }
 
 function ExtractionPanel({ sourceId }: { sourceId: string }) {
@@ -208,12 +208,12 @@ function SourcesTable() {
                     <tr
                       key={source.id}
                       className={`border-b border-border/50 transition-colors ${
-                        isMediaSource(source.type) && source.status === "completed"
+                        hasExtractionPanel(source.type) && source.status === "completed"
                           ? "cursor-pointer hover:bg-accent/20"
                           : ""
                       } ${expandedId === source.id ? "bg-accent/10" : ""}`}
                       onClick={() => {
-                        if (isMediaSource(source.type) && source.status === "completed") {
+                        if (hasExtractionPanel(source.type) && source.status === "completed") {
                           toggleExpand(source.id);
                         }
                       }}
@@ -229,25 +229,28 @@ function SourcesTable() {
                           )}
                           <div className="min-w-0">
                             <p className="font-medium truncate">{source.title || "Untitled"}</p>
-                            {isMediaSource(source.type) && source.status === "completed" ? (
-                              <span className="text-xs text-primary flex items-center gap-0.5 mt-0.5">
-                                {expandedId === source.id
-                                  ? <><ChevronUp className="h-3 w-3" /> Hide extraction</>
-                                  : <><ChevronDown className="h-3 w-3" /> View extraction</>
-                                }
-                              </span>
-                            ) : source.url ? (
-                              <a
-                                href={source.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-muted-foreground hover:text-primary flex items-center gap-0.5 mt-0.5"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <ExternalLink className="h-3 w-3" />
-                                View original
-                              </a>
-                            ) : null}
+                            <div className="flex items-center gap-3 mt-0.5">
+                              {hasExtractionPanel(source.type) && source.status === "completed" && (
+                                <span className="text-xs text-primary flex items-center gap-0.5">
+                                  {expandedId === source.id
+                                    ? <><ChevronUp className="h-3 w-3" /> Hide extraction</>
+                                    : <><ChevronDown className="h-3 w-3" /> View extraction</>
+                                  }
+                                </span>
+                              )}
+                              {source.url && (
+                                <a
+                                  href={source.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-muted-foreground hover:text-primary flex items-center gap-0.5"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  View original
+                                </a>
+                              )}
+                            </div>
                             {source.error_message && (
                               <p className="text-xs text-red-400 mt-0.5 truncate">{source.error_message}</p>
                             )}

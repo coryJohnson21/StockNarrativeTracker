@@ -58,6 +58,7 @@ class StockMomentumResponse(BaseModel):
     ticker: str
     company_name: Optional[str]
     sector: Optional[str]
+    is_public: Optional[bool] = None
     score: float
     mention_count: int
     mention_count_7d: int
@@ -66,6 +67,10 @@ class StockMomentumResponse(BaseModel):
     avg_sentiment: float
     unique_sources: int
     ai_summary: Optional[str]
+    label: Optional[str] = None
+    previous_label: Optional[str] = None
+    current_price: Optional[float] = None
+    market_cap: Optional[float] = None
     computed_at: datetime
 
     class Config:
@@ -91,6 +96,8 @@ class ThemeMomentumResponse(BaseModel):
     avg_sentiment: float
     unique_sources: int
     ai_summary: Optional[str]
+    label: Optional[str] = None
+    previous_label: Optional[str] = None
     computed_at: datetime
 
     class Config:
@@ -100,6 +107,10 @@ class ThemeMomentumResponse(BaseModel):
 class ThemeListResponse(BaseModel):
     themes: List[ThemeMomentumResponse]
     total: int
+
+
+class ThemeTrackRequest(BaseModel):
+    name: str
 
 
 # --- Watchlist ---

@@ -33,6 +33,11 @@ export interface StockTrending {
   avg_sentiment: number;
   unique_sources: number;
   ai_summary?: string;
+  is_public?: boolean;
+  label?: string;
+  previous_label?: string;
+  current_price?: number;
+  market_cap?: number;
   computed_at: string;
 }
 
@@ -48,6 +53,8 @@ export interface ThemeTrending {
   avg_sentiment: number;
   unique_sources: number;
   ai_summary?: string;
+  label?: string;
+  previous_label?: string;
   computed_at: string;
 }
 
@@ -84,6 +91,19 @@ export interface StockProfile {
   narrative_summary?: string;
 }
 
+export interface ThemeImpactEntry {
+  target: string;
+  target_type: "theme" | "market" | "stock";
+  direction: "up" | "down";
+  label: "Positive correlation" | "Negative correlation" | "Neutral" | "Historically correlated" | "Currently diverging";
+  rationale: string;
+}
+
+export interface ThemeImpactAnalysis {
+  rising: ThemeImpactEntry[];
+  falling: ThemeImpactEntry[];
+}
+
 export interface ThemeProfile {
   name: string;
   description?: string;
@@ -93,6 +113,7 @@ export interface ThemeProfile {
     media: { mention_count: number; avg_sentiment: number; unique_sources: number };
   };
   top_stocks: { ticker: string; company_name?: string; co_mentions: number }[];
+  impact_analysis?: ThemeImpactAnalysis;
 }
 
 export interface BasketBreakdown {
@@ -122,6 +143,19 @@ export interface PodcastFeed {
   last_polled_at?: string;
   created_at: string;
   episode_count: number;
+}
+
+export interface PodcastSearchResult {
+  title: string;
+  publisher?: string;
+  artwork_url?: string;
+  feed_url: string;
+}
+
+export interface YoutubeChannelResolution {
+  channel_id: string;
+  title: string;
+  feed_url: string;
 }
 
 export interface RedditFeed {

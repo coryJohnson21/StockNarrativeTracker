@@ -14,6 +14,8 @@ from app.services.momentum import (
     get_stock_self_vs_external_breakdown,
     get_stock_mention_contexts,
     get_stock_mention_history,
+    get_stock_momentum_extras,
+    sentiment_to_label,
     FILING_SOURCE_TYPES,
     MEDIA_CHANNEL_SOURCE_TYPES,
 )
@@ -45,12 +47,15 @@ async def get_trending_stocks(
         rows = None
 
     if rows is not None:
+        stock_ids = [row["parent"].id for row in rows]
+        extras = await get_stock_momentum_extras(db, stock_ids)
         results = [
             StockMomentumResponse(
                 id=row["parent"].id,
                 ticker=row["parent"].ticker,
                 company_name=row["parent"].company_name,
                 sector=row["parent"].sector,
+                is_public=row["parent"].is_public,
                 score=row["score"],
                 mention_count=row["mention_count"],
                 mention_count_7d=row["mention_count_7d"],
@@ -59,6 +64,10 @@ async def get_trending_stocks(
                 avg_sentiment=row["avg_sentiment"],
                 unique_sources=row["unique_sources"],
                 ai_summary=row["ai_summary"],
+                label=sentiment_to_label(row["avg_sentiment"]),
+                previous_label=extras.get(row["parent"].id, {}).get("previous_label"),
+                current_price=extras.get(row["parent"].id, {}).get("current_price"),
+                market_cap=extras.get(row["parent"].id, {}).get("market_cap"),
                 computed_at=row["computed_at"],
             )
             for row in rows
@@ -90,6 +99,7 @@ async def get_trending_stocks(
                 ticker=stock.ticker,
                 company_name=stock.company_name,
                 sector=stock.sector,
+                is_public=stock.is_public,
                 score=momentum.score,
                 mention_count=momentum.mention_count,
                 mention_count_7d=momentum.mention_count_7d,
@@ -98,6 +108,10 @@ async def get_trending_stocks(
                 avg_sentiment=momentum.avg_sentiment,
                 unique_sources=momentum.unique_sources,
                 ai_summary=momentum.ai_summary,
+                label=momentum.label,
+                previous_label=momentum.previous_label,
+                current_price=momentum.current_price,
+                market_cap=momentum.market_cap,
                 computed_at=momentum.computed_at,
             )
         )

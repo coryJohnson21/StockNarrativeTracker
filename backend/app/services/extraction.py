@@ -6,6 +6,50 @@ from app.config import settings
 
 _RETRY_SECONDS_RE = re.compile(r"try again in ([\d.]+)s")
 
+_TICKER_ALIASES: dict[str, str] = {
+    "J&J": "JNJ",
+    "BRK.A": "BRK-A",
+    "BRK.B": "BRK-B",
+    "BRK/A": "BRK-A",
+    "BRK/B": "BRK-B",
+    "BRKA": "BRK-A",
+    "BRKB": "BRK-B",
+}
+
+_INDEX_RE = re.compile(
+    r"S&P|DOW\s*JONES|NASDAQ\s*COMPOSITE|NYSE\s*COMPOSITE|RUSSELL\s*\d|^VIX$",
+    re.IGNORECASE,
+)
+
+_VALID_TICKER_RE = re.compile(r"^[A-Z][A-Z0-9]{0,8}(-[A-Z])?$")
+
+
+def _normalize_ticker(raw: str) -> str | None:
+    """Normalize a GPT-extracted ticker to a clean Yahoo Finance-compatible symbol.
+    Returns None if the string is not a valid ticker (index, has spaces, etc.)."""
+    t = raw.upper().strip()
+
+    # Check known aliases first (before any other transforms)
+    if t in _TICKER_ALIASES:
+        return _TICKER_ALIASES[t]
+
+    # Reject indexes (S&P 500, Dow Jones, etc.)
+    if _INDEX_RE.search(t):
+        return None
+
+    # Reject anything with a space — GPT sometimes emits "SK HYNIX" or "S&P 500"
+    if " " in t:
+        return None
+
+    # Normalize share-class dot notation to dash: BRK.A → BRK-A
+    t = re.sub(r"\.([A-Z])$", r"-\1", t)
+
+    # Must match a plausible ticker pattern after normalization
+    if not _VALID_TICKER_RE.match(t):
+        return None
+
+    return t
+
 
 async def _create_with_retry(client: openai.AsyncOpenAI, max_retries: int = 8, **kwargs):
     """gpt-4o on this account is capped at a low tokens-per-minute tier, so bulk
@@ -61,6 +105,18 @@ STOCKS FIELD — this is the most important field. Rules:
   - A stock appearing 3 times and one appearing once both belong in the array
   - Do NOT limit to the "main" story — capture everything
 
+TICKER FORMAT — always use the official US exchange ticker symbol:
+  - Johnson & Johnson / J&J → JNJ
+  - Berkshire Hathaway Class A → BRK-A (use dash, never dot: NOT BRK.A)
+  - Berkshire Hathaway Class B → BRK-B (use dash, never dot: NOT BRK.B)
+  - Alphabet → GOOGL, Meta → META, NextEra Energy → NEE, Block / Square → SQ
+  - For foreign companies listed in the US as ADRs, use the ADR ticker (e.g. Toyota → TM, Alibaba → BABA, ASML → ASML)
+  - For foreign companies with no US listing (e.g. Lufthansa, Hapag-Lloyd, SK Hynix), still include them but note in company field that they are foreign-listed
+  - NEVER use spaces in a ticker — "SK HYNIX" is wrong; use "HXSCL" (its US OTC symbol) or omit if unknown
+  - NEVER include stock market indexes as stocks (S&P 500, Dow Jones, Nasdaq Composite, Russell 2000 are indexes, not stocks — omit them entirely)
+  - NEVER include ETFs or mutual funds as individual stocks unless the transcript is specifically discussing the ETF itself
+  - Private companies (OpenAI, SpaceX, Anthropic, etc.) should still be included — just use a reasonable ticker abbreviation (OPENAI, SPACEX, ANTHROPIC)
+
 SUMMARY — write exactly 12 sentences in this order:
   Sentences 1-2: Overall market backdrop and macro environment discussed in this episode
   Sentences 3-4: Major investment themes and sectors that received significant airtime
@@ -84,17 +140,29 @@ CALLS RULES:
   - "price_target" is a number or null — only populate if a specific dollar figure was stated
   - Return empty array if no explicit calls were made
 
-THEMES: normalize to — Artificial Intelligence, Machine Learning, Cloud Computing, Semiconductors, Nuclear Energy, Renewable Energy, Cybersecurity, Digital Payments, Fintech, Biotechnology, Pharmaceutical, Defense & Aerospace, Real Estate, Inflation & Macro, Interest Rates, Federal Reserve Policy, Supply Chain, Data Centers, Electric Vehicles, Autonomous Driving, Consumer Discretionary, Energy Transition, Commodities
+THEMES: normalize to one of these tracked themes whenever the content reasonably matches — {themes}. Only introduce a new theme name if the transcript covers a genuinely distinct major theme that doesn't fit any of these.
 
 Transcript:
 {transcript}"""
 
+# Used only if the tracked-themes table is somehow empty when a source is processed.
+_FALLBACK_THEMES = (
+    "Artificial Intelligence, Machine Learning, Cloud Computing, Semiconductors, Nuclear Energy, "
+    "Renewable Energy, Cybersecurity, Digital Payments, Financial Technology, Biotechnology, "
+    "Pharmaceutical, Defense & Aerospace, Real Estate, Inflation & Macro, Interest Rates, "
+    "Federal Reserve Policy, Supply Chain, Data Centers, Electric Vehicles, Autonomous Driving, "
+    "Consumer Discretionary, Commodities"
+)
 
-async def extract_from_transcript(transcript: str, title: str = "") -> dict:
-    """Use GPT-4o to extract stocks, themes, and generate summary."""
+
+async def extract_from_transcript(transcript: str, title: str = "", known_themes: list[str] | None = None) -> dict:
+    """Use GPT-4o to extract stocks, themes, and generate summary. known_themes is the
+    user's current tracked-theme list, passed in so extraction stays aligned with what
+    they've asked to follow rather than drifting into ad hoc naming."""
     client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
 
     truncated = transcript[:100000] if len(transcript) > 100000 else transcript
+    themes_str = ", ".join(known_themes) if known_themes else _FALLBACK_THEMES
 
     response = await _create_with_retry(
         client,
@@ -105,12 +173,18 @@ async def extract_from_transcript(transcript: str, title: str = "") -> dict:
                 "content": EXTRACTION_PROMPT.format(
                     title=title or "Financial Media Content",
                     transcript=truncated,
+                    themes=themes_str,
                 ),
             }
         ],
         response_format={"type": "json_object"},
         temperature=0.1,
-        max_tokens=4000,
+        # A single JSON blob has to hold the full 12-sentence summary plus every
+        # stock/theme/call entry with its own context string -- 4000 was tight enough
+        # that extraction-rich transcripts could get cut off mid-string, producing
+        # invalid JSON (hard failure) or a truncated-but-parseable response missing
+        # entries (silent partial extraction).
+        max_tokens=8000,
     )
 
     raw = response.choices[0].message.content
@@ -120,9 +194,12 @@ async def extract_from_transcript(transcript: str, title: str = "") -> dict:
     stocks = []
     for s in result.get("stocks", []):
         if isinstance(s, dict) and s.get("ticker"):
+            ticker = _normalize_ticker(str(s["ticker"]))
+            if ticker is None:
+                continue
             stocks.append(
                 {
-                    "ticker": str(s["ticker"]).upper().strip()[:10],
+                    "ticker": ticker,
                     "company": str(s.get("company", ""))[:200],
                     "sentiment": float(max(-100, min(100, s.get("sentiment", 0)))),
                     "context": str(s.get("context", ""))[:300],
@@ -240,3 +317,91 @@ async def generate_theme_description(theme_name: str) -> str:
         max_tokens=200,
     )
     return response.choices[0].message.content.strip()
+
+
+_IMPACT_LABELS = (
+    "Positive correlation",
+    "Negative correlation",
+    "Neutral",
+    "Historically correlated",
+    "Currently diverging",
+)
+
+
+async def generate_theme_impact_analysis(theme_name: str, known_themes: list[str]) -> dict:
+    """Generate a directional ripple-effect analysis for a theme: if this theme rises, and
+    separately if it falls, which other themes/the overall market/occasionally a specific
+    stock tend to move, in which direction, and why. This is a macro-reasoning exercise
+    grounded in general market knowledge -- not a statistical correlation computed from our
+    own ingestion volume, which is too thin/short-lived to support that."""
+    client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+
+    theme_list = ", ".join(known_themes)
+    label_list = ", ".join(f'"{l}"' for l in _IMPACT_LABELS)
+
+    prompt = (
+        f"You are a macro strategist explaining second-order effects for the investment theme "
+        f"'{theme_name}'.\n\n"
+        f"Return a JSON object with EXACTLY this structure:\n"
+        "{\n"
+        '  "rising": [ {"target": "...", "target_type": "theme|market|stock", "direction": "up|down", '
+        '"label": "...", "rationale": "one sentence"} ],\n'
+        '  "falling": [ {"target": "...", "target_type": "theme|market|stock", "direction": "up|down", '
+        '"label": "...", "rationale": "one sentence"} ]\n'
+        "}\n\n"
+        f"\"rising\" describes what tends to happen elsewhere if '{theme_name}' is rising/strengthening. "
+        f"\"falling\" describes what tends to happen elsewhere if '{theme_name}' is falling/weakening.\n\n"
+        f"Rules:\n"
+        f"- 3-4 entries per array, ranked by how strong/well-known the relationship is.\n"
+        f"- Prefer target_type \"theme\" and reuse one of these existing tracked themes verbatim when it fits: "
+        f"{theme_list}. Only invent a theme name if nothing above fits.\n"
+        f"- At most one entry per array may use target_type \"market\" (target: \"Overall Market\"), "
+        f"and at most one entry per array may use target_type \"stock\" (a real ticker) as a concrete example.\n"
+        f"- \"label\" must be EXACTLY one of: {label_list}.\n"
+        f"- \"direction\" is the target's expected direction, not {theme_name}'s.\n"
+        f"- rationale is ONE short sentence, plain prose, specific to this relationship (no generic filler).\n"
+        f"- Do not include '{theme_name}' itself as a target."
+    )
+
+    response = await _create_with_retry(
+        client,
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+        temperature=0.3,
+        max_tokens=900,
+    )
+
+    result = json.loads(response.choices[0].message.content)
+
+    def _sanitize(entries) -> list[dict]:
+        cleaned = []
+        for e in entries if isinstance(entries, list) else []:
+            if not isinstance(e, dict) or not e.get("target"):
+                continue
+            label = str(e.get("label", ""))
+            if label not in _IMPACT_LABELS:
+                continue
+            target_type = str(e.get("target_type", "theme")).lower()
+            if target_type not in ("theme", "market", "stock"):
+                target_type = "theme"
+            direction = str(e.get("direction", "")).lower()
+            if direction not in ("up", "down"):
+                continue
+            cleaned.append(
+                {
+                    "target": str(e["target"])[:100],
+                    "target_type": target_type,
+                    "direction": direction,
+                    "label": label,
+                    "rationale": str(e.get("rationale", ""))[:300],
+                }
+            )
+            if len(cleaned) == 4:
+                break
+        return cleaned
+
+    return {
+        "rising": _sanitize(result.get("rising")),
+        "falling": _sanitize(result.get("falling")),
+    }

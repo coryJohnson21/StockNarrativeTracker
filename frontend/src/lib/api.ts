@@ -1,4 +1,4 @@
-import type { Source, StockTrending, ThemeTrending, DashboardStats, Mention, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, RedditFeed } from "@/types";
+import type { Source, StockTrending, ThemeTrending, DashboardStats, Mention, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, PodcastSearchResult, YoutubeChannelResolution, RedditFeed } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -170,6 +170,17 @@ export async function getThemeMentions(
   return apiFetch(`/api/themes/${encodeURIComponent(name)}/mentions?${q}`);
 }
 
+export async function trackTheme(name: string): Promise<{ name: string; is_tracked: boolean }> {
+  return apiFetch("/api/themes/track", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function untrackTheme(name: string): Promise<void> {
+  await apiFetch(`/api/themes/track/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
 // --- Watchlist ---
 
 export async function getWatchlist(): Promise<{ items: WatchlistItem[] }> {
@@ -210,6 +221,14 @@ export async function removePodcastFeed(id: string): Promise<void> {
 
 export async function pollPodcastFeedNow(id: string): Promise<{ status: string; detail: string }> {
   return apiFetch(`/api/podcasts/${id}/poll`, { method: "POST" });
+}
+
+export async function searchPodcasts(query: string): Promise<{ results: PodcastSearchResult[] }> {
+  return apiFetch(`/api/podcasts/search?q=${encodeURIComponent(query)}`);
+}
+
+export async function resolveYoutubeChannel(url: string): Promise<YoutubeChannelResolution> {
+  return apiFetch(`/api/podcasts/resolve-youtube-channel?url=${encodeURIComponent(url)}`);
 }
 
 // --- Reddit Feeds ---

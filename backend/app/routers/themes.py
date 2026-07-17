@@ -5,15 +5,17 @@ from typing import Literal, Optional
 
 from app.database import get_db
 from app.models.models import Theme, ThemeMomentum, ThemeMention, ThemeProfile
-from app.schemas.schemas import ThemeMomentumResponse, ThemeListResponse
+from app.schemas.schemas import ThemeMomentumResponse, ThemeListResponse, ThemeTrackRequest
 from app.services.momentum import (
     get_trending_themes_by_category,
     get_trending_themes_by_channel,
     get_theme_mention_breakdown,
     get_top_stocks_for_theme,
+    get_theme_momentum_extras,
+    sentiment_to_label,
     FILING_SOURCE_TYPES,
 )
-from app.services.extraction import generate_theme_description
+from app.services.extraction import generate_theme_description, generate_theme_impact_analysis
 
 router = APIRouter(prefix="/themes", tags=["themes"])
 
@@ -40,6 +42,8 @@ async def get_trending_themes(
         rows = None
 
     if rows is not None:
+        theme_ids = [row["parent"].id for row in rows]
+        extras = await get_theme_momentum_extras(db, theme_ids)
         results = [
             ThemeMomentumResponse(
                 id=row["parent"].id,
@@ -53,6 +57,8 @@ async def get_trending_themes(
                 avg_sentiment=row["avg_sentiment"],
                 unique_sources=row["unique_sources"],
                 ai_summary=row["ai_summary"],
+                label=sentiment_to_label(row["avg_sentiment"]),
+                previous_label=extras.get(row["parent"].id, {}).get("previous_label"),
                 computed_at=row["computed_at"],
             )
             for row in rows
@@ -62,7 +68,7 @@ async def get_trending_themes(
     q = (
         select(Theme, ThemeMomentum)
         .join(ThemeMomentum, Theme.id == ThemeMomentum.theme_id)
-        .where(ThemeMomentum.score >= min_score)
+        .where(ThemeMomentum.score >= min_score, Theme.is_tracked.is_(True))
         .order_by(desc(ThemeMomentum.score))
     )
 
@@ -70,7 +76,7 @@ async def get_trending_themes(
         select(func.count())
         .select_from(Theme)
         .join(ThemeMomentum, Theme.id == ThemeMomentum.theme_id)
-        .where(ThemeMomentum.score >= min_score)
+        .where(ThemeMomentum.score >= min_score, Theme.is_tracked.is_(True))
     )
 
     total = (await db.execute(count_q)).scalar()
@@ -91,11 +97,54 @@ async def get_trending_themes(
                 avg_sentiment=momentum.avg_sentiment,
                 unique_sources=momentum.unique_sources,
                 ai_summary=momentum.ai_summary,
+                label=momentum.label,
+                previous_label=momentum.previous_label,
                 computed_at=momentum.computed_at,
             )
         )
 
     return {"themes": results, "total": total}
+
+
+@router.post("/track", status_code=201)
+async def track_theme(request: ThemeTrackRequest, db: AsyncSession = Depends(get_db)):
+    """Add a theme to the curated tracked list. If the name matches an existing theme
+    (case-insensitive) it's promoted from the untracked candidate pool; otherwise a new
+    Theme row is created, tracked from the start, with a zeroed momentum row so it shows
+    up immediately instead of waiting for the next ingestion's momentum refresh."""
+    name = request.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Theme name is required")
+
+    result = await db.execute(select(Theme).where(func.lower(Theme.name) == name.lower()))
+    theme = result.scalar_one_or_none()
+
+    if theme is not None and theme.is_tracked:
+        raise HTTPException(status_code=409, detail=f"'{theme.name}' is already tracked")
+
+    if theme is None:
+        theme = Theme(name=name, is_tracked=True)
+        db.add(theme)
+        await db.flush()
+        db.add(ThemeMomentum(theme_id=theme.id))
+    else:
+        theme.is_tracked = True
+
+    await db.commit()
+    return {"name": theme.name, "is_tracked": True}
+
+
+@router.delete("/track/{theme_name}", status_code=204)
+async def untrack_theme(theme_name: str, db: AsyncSession = Depends(get_db)):
+    """Remove a theme from the tracked list. Soft-untrack only -- all historical
+    mentions, momentum, and profile data are kept, so re-tracking later restores it."""
+    result = await db.execute(select(Theme).where(Theme.name == theme_name))
+    theme = result.scalar_one_or_none()
+    if theme is None or not theme.is_tracked:
+        raise HTTPException(status_code=404, detail=f"'{theme_name}' is not on the tracked list")
+
+    theme.is_tracked = False
+    await db.commit()
 
 
 @router.get("/{theme_name}/mentions")
@@ -165,6 +214,15 @@ async def get_theme_profile(theme_name: str, db: AsyncSession = Depends(get_db))
         db.add(profile)
         await db.commit()
 
+    if profile.impact_analysis is not None:
+        impact_analysis = profile.impact_analysis
+    else:
+        known_themes_result = await db.execute(select(Theme.name).where(Theme.id != theme.id))
+        known_themes = [name for (name,) in known_themes_result.all()]
+        impact_analysis = await generate_theme_impact_analysis(theme.name, known_themes)
+        profile.impact_analysis = impact_analysis
+        await db.commit()
+
     momentum_result = await db.execute(select(ThemeMomentum).where(ThemeMomentum.theme_id == theme.id))
     momentum = momentum_result.scalar_one_or_none()
 
@@ -177,4 +235,5 @@ async def get_theme_profile(theme_name: str, db: AsyncSession = Depends(get_db))
         "momentum_score": momentum.score if momentum else None,
         "mention_breakdown": mention_breakdown,
         "top_stocks": top_stocks,
+        "impact_analysis": impact_analysis,
     }

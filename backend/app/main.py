@@ -61,6 +61,18 @@ async def _periodic_reddit_poll():
             logger.exception("Periodic Reddit poll failed")
 
 
+async def _periodic_market_data_refresh():
+    from app.services.momentum import refresh_market_data_cache
+    while True:
+        await asyncio.sleep(6 * 3600)
+        try:
+            async with AsyncSessionLocal() as db:
+                await refresh_market_data_cache(db)
+            logger.info("Market data cache refreshed")
+        except Exception:
+            logger.exception("Periodic market data refresh failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create tables on startup (for dev; use alembic in prod)
@@ -76,6 +88,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(_periodic_sec_scan()),
             asyncio.create_task(_periodic_podcast_poll()),
             asyncio.create_task(_periodic_reddit_poll()),
+            asyncio.create_task(_periodic_market_data_refresh()),
         ]
         logger.info("Auto-ingest enabled: periodic SEC/podcast/Reddit polling started")
     else:

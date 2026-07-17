@@ -2,12 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Layers } from "lucide-react";
+import { Loader2, Layers, X } from "lucide-react";
 import { SentimentBadge } from "./SentimentBadge";
-import { MomentumBar } from "./MomentumBadge";
+import { SignalChip } from "./SignalChip";
 import { SortableHeader } from "./SortableHeader";
 import { getTrendingThemes, type SourceCategory, type MediaChannel } from "@/lib/api";
-import { growthLabel, growthColor, timeAgo } from "@/lib/utils";
 import type { ThemeTrending } from "@/types";
 
 interface Props {
@@ -15,20 +14,15 @@ interface Props {
   compact?: boolean;
   category?: SourceCategory;
   channel?: MediaChannel;
+  refreshToken?: number;
+  onUntrack?: (name: string) => void;
 }
 
-type SortKey =
-  | "name"
-  | "score"
-  | "mention_count"
-  | "mention_growth_rate"
-  | "avg_sentiment"
-  | "unique_sources"
-  | "computed_at";
+type SortKey = "name" | "score" | "avg_sentiment";
 
 const STRING_KEYS: SortKey[] = ["name"];
 
-export function TrendingThemesTable({ limit = 20, compact = false, category, channel }: Props) {
+export function TrendingThemesTable({ limit = 20, compact = false, category, channel, refreshToken, onUntrack }: Props) {
   const router = useRouter();
   const [themes, setThemes] = useState<ThemeTrending[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,7 +36,7 @@ export function TrendingThemesTable({ limit = 20, compact = false, category, cha
       .then((r) => setThemes(r.themes))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [limit, category, channel]);
+  }, [limit, category, channel, refreshToken]);
 
   function handleSort(key: string) {
     const k = key as SortKey;
@@ -98,16 +92,12 @@ export function TrendingThemesTable({ limit = 20, compact = false, category, cha
           <tr className="border-b border-border text-muted-foreground text-xs uppercase tracking-wide">
             <th className="text-left py-2 px-3 w-8">#</th>
             <SortableHeader label="Theme" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-            <SortableHeader label="Momentum" sortKey="score" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-32" />
-            <SortableHeader label="Mentions" sortKey="mention_count" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-16" />
-            <SortableHeader label="7d Growth" sortKey="mention_growth_rate" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-20" />
-            <SortableHeader label="Sentiment" sortKey="avg_sentiment" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-20" />
+            <th className="text-left py-2 px-3 w-28">Signal</th>
             {!compact && (
-              <SortableHeader label="Sources" sortKey="unique_sources" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
+              <th className="text-left py-2 px-3 w-24 text-muted-foreground">Previous</th>
             )}
-            {!compact && (
-              <SortableHeader label="Updated" sortKey="computed_at" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
-            )}
+            <SortableHeader label="Sentiment" sortKey="avg_sentiment" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-24" />
+            {onUntrack && <th className="w-8" />}
           </tr>
         </thead>
         <tbody>
@@ -122,23 +112,29 @@ export function TrendingThemesTable({ limit = 20, compact = false, category, cha
                 <span className="font-semibold text-foreground truncate block">{theme.name}</span>
               </td>
               <td className="py-3 px-3">
-                <MomentumBar score={theme.score} />
+                <SignalChip label={theme.label} />
               </td>
-              <td className="py-3 px-3 text-right tabular-nums">{theme.mention_count}</td>
-              <td className={`py-3 px-3 text-right tabular-nums font-medium ${growthColor(theme.mention_growth_rate)}`}>
-                {growthLabel(theme.mention_growth_rate)}
-              </td>
+              {!compact && (
+                <td className="py-3 px-3">
+                  <SignalChip label={theme.previous_label} dim />
+                </td>
+              )}
               <td className="py-3 px-3">
                 <SentimentBadge score={theme.avg_sentiment} />
               </td>
-              {!compact && (
-                <td className="py-3 px-3 text-right tabular-nums text-muted-foreground">
-                  {theme.unique_sources}
-                </td>
-              )}
-              {!compact && (
-                <td className="py-3 px-3 text-right text-muted-foreground text-xs">
-                  {timeAgo(theme.computed_at)}
+              {onUntrack && (
+                <td className="py-3 px-3 text-right">
+                  <button
+                    type="button"
+                    aria-label={`Stop tracking ${theme.name}`}
+                    className="text-muted-foreground hover:text-red-400 transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUntrack(theme.name);
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </td>
               )}
             </tr>

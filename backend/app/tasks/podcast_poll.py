@@ -1,13 +1,14 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models.models import Source, PodcastFeed
 from app.services import podcast as podcast_service
-from app.tasks.processing import process_podcast_episode_source
+from app.services import youtube as youtube_service
+from app.tasks.processing import process_podcast_episode_source, process_youtube_source
 
 logger = logging.getLogger(__name__)
 
@@ -15,27 +16,44 @@ logger = logging.getLogger(__name__)
 # per-minute token cap means concurrency beyond 1 just produces more 429s.
 _processing_semaphore = asyncio.Semaphore(1)
 
-# A feed's full RSS history can be hundreds of episodes deep. Subscribing is meant
-# to auto-ingest *new* episodes going forward, not backfill the archive — so every
-# poll (first one included) only ever processes the newest few un-ingested episodes.
+# Safety cap on episodes processed in a single poll, in case a feed genuinely
+# published a burst of new episodes since we last checked.
 MAX_NEW_EPISODES_PER_POLL = 3
 
+# A feed's full RSS history can be hundreds of episodes deep. Subscribing is meant to
+# auto-ingest *new* episodes going forward, not backfill the archive -- so a feed's very
+# first poll only looks this far back, establishing last_polled_at as the baseline for
+# every poll after that. Without this, a feed with no last_polled_at would fall back to
+# "newest not-yet-ingested," which just works through the backlog a few episodes at a
+# time on every subsequent poll instead of coming up empty when there's nothing new.
+FIRST_POLL_LOOKBACK_HOURS = 48
 
-async def _process_bounded(source_id: str) -> None:
+
+async def _process_bounded(source_id: str, is_youtube_channel: bool) -> None:
     async with _processing_semaphore:
-        await process_podcast_episode_source(source_id)
+        if is_youtube_channel:
+            await process_youtube_source(source_id)
+        else:
+            await process_podcast_episode_source(source_id)
 
 
 async def poll_feed(feed_id) -> list[str]:
-    """Fetch one feed's RSS, create Source rows for episodes not already ingested
-    (deduped by audio URL), process them, and stamp last_polled_at."""
+    """Fetch one feed (podcast RSS or a YouTube channel's uploads feed), create Source
+    rows for episodes/videos published since the last poll (deduped by URL as a safety
+    net), process them, and stamp last_polled_at."""
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(PodcastFeed).where(PodcastFeed.id == feed_id))
         feed = result.scalar_one_or_none()
         if feed is None:
             raise ValueError("Podcast feed not found")
 
-        episodes = await podcast_service.parse_feed(feed.url)
+        is_youtube_channel = feed.source_type == "youtube"
+        cutoff = feed.last_polled_at or (datetime.utcnow() - timedelta(hours=FIRST_POLL_LOOKBACK_HOURS))
+
+        if is_youtube_channel:
+            episodes = await youtube_service.parse_channel_feed(feed.url)
+        else:
+            episodes = await podcast_service.parse_feed(feed.url)
         # Newest first by publish date when available (missing dates sort last),
         # so the cap below takes the most recent episodes rather than feed order.
         episodes.sort(key=lambda e: e.get("published_at") or (), reverse=True)
@@ -45,20 +63,26 @@ async def poll_feed(feed_id) -> list[str]:
             if len(created_ids) >= MAX_NEW_EPISODES_PER_POLL:
                 break
 
-            existing = await db.execute(select(Source).where(Source.url == ep["audio_url"]))
+            # No publish date means we can't confirm this is actually new -- and
+            # since the list is sorted newest-first, everything from here on is
+            # this old or older (or equally undated), so stop looking entirely.
+            if not ep.get("published_at"):
+                break
+            published_at = datetime(*ep["published_at"][:6])
+            if published_at <= cutoff:
+                break
+
+            existing = await db.execute(select(Source).where(Source.url == ep["url"]))
             if existing.scalar_one_or_none() is not None:
                 continue
 
-            published_at = None
-            if ep.get("published_at"):
-                published_at = datetime(*ep["published_at"][:6])
-
             source = Source(
                 type=feed.source_type,
-                url=ep["audio_url"],
+                url=ep["url"],
                 title=ep["title"],
                 channel=feed.label,
                 published_at=published_at,
+                duration_seconds=ep.get("duration_seconds"),
                 status="pending",
             )
             db.add(source)
@@ -69,7 +93,7 @@ async def poll_feed(feed_id) -> list[str]:
         feed.last_polled_at = datetime.utcnow()
         await db.commit()
 
-    await asyncio.gather(*(_process_bounded(sid) for sid in created_ids))
+    await asyncio.gather(*(_process_bounded(sid, is_youtube_channel) for sid in created_ids))
     return created_ids
 
 

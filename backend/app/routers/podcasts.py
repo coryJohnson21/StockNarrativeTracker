@@ -1,13 +1,35 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 
 from app.database import get_db
 from app.models.models import PodcastFeed, Source
 from app.schemas.schemas import PodcastFeedAddRequest, PodcastFeedResponse, PodcastFeedListResponse
+from app.services import podcast as podcast_service
+from app.services import youtube as youtube_service
 from app.tasks.podcast_poll import poll_feed
 
 router = APIRouter(prefix="/podcasts", tags=["podcasts"])
+
+
+@router.get("/search")
+async def search_podcasts(q: str = Query(..., min_length=1)):
+    """Look up podcasts by name and return their RSS feed URLs, so the user can
+    subscribe by show name instead of finding the raw feed URL themselves."""
+    results = await podcast_service.search_podcasts(q)
+    return {"results": results}
+
+
+@router.get("/resolve-youtube-channel")
+async def resolve_youtube_channel(url: str = Query(..., min_length=1)):
+    """Resolve a YouTube channel URL or @handle to its uploads feed, so subscribing
+    to a channel works the same way as subscribing to a podcast RSS feed -- new
+    videos are auto-ingested via captions (falling back to Whisper) instead of
+    downloading and transcribing podcast audio."""
+    result = await youtube_service.resolve_channel(url)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Could not resolve that as a YouTube channel")
+    return result
 
 
 async def _build_response(db: AsyncSession, feed: PodcastFeed) -> PodcastFeedResponse:

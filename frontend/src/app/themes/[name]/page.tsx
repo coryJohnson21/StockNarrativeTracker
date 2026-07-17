@@ -7,6 +7,7 @@ import { ArrowLeft, Loader2, AlertCircle, Landmark, Newspaper, Layers } from "lu
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { SentimentBadge } from "@/components/SentimentBadge";
 import { MomentumBar } from "@/components/MomentumBadge";
+import { ThemeImpactCard } from "@/components/ThemeImpactCard";
 import { getThemeProfile } from "@/lib/api";
 import type { ThemeProfile } from "@/types";
 
@@ -107,6 +108,10 @@ export default function ThemeDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          {profile.impact_analysis && (
+            <ThemeImpactCard themeName={profile.name} analysis={profile.impact_analysis} />
+          )}
 
           {profile.top_stocks.length > 0 && (
             <Card>

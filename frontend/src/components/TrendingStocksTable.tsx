@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, TrendingUp } from "lucide-react";
 import { SentimentBadge } from "./SentimentBadge";
-import { MomentumBar } from "./MomentumBadge";
+import { SignalChip } from "./SignalChip";
 import { SortableHeader } from "./SortableHeader";
 import { getTrendingStocks, type SourceCategory, type MediaChannel } from "@/lib/api";
-import { growthLabel, growthColor, timeAgo } from "@/lib/utils";
+import { formatPrice, formatLargeNumber } from "@/lib/utils";
 import type { StockTrending } from "@/types";
 
 interface Props {
@@ -21,11 +21,9 @@ type SortKey =
   | "ticker"
   | "company_name"
   | "score"
-  | "mention_count"
-  | "mention_growth_rate"
   | "avg_sentiment"
-  | "unique_sources"
-  | "computed_at";
+  | "current_price"
+  | "market_cap";
 
 const STRING_KEYS: SortKey[] = ["ticker", "company_name"];
 
@@ -98,19 +96,20 @@ export function TrendingStocksTable({ limit = 20, compact = false, category, cha
         <thead>
           <tr className="border-b border-border text-muted-foreground text-xs uppercase tracking-wide">
             <th className="text-left py-2 px-3 w-8">#</th>
-            <SortableHeader label="Ticker" sortKey="ticker" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+            <SortableHeader label="Ticker" sortKey="ticker" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-20" />
             {!compact && (
               <SortableHeader label="Company" sortKey="company_name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
             )}
-            <SortableHeader label="Momentum" sortKey="score" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-32" />
-            <SortableHeader label="Mentions" sortKey="mention_count" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-16" />
-            <SortableHeader label="7d Growth" sortKey="mention_growth_rate" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-20" />
-            <SortableHeader label="Sentiment" sortKey="avg_sentiment" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-20" />
+            <th className="text-left py-2 px-3 w-28">Signal</th>
             {!compact && (
-              <SortableHeader label="Sources" sortKey="unique_sources" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
+              <th className="text-left py-2 px-3 w-24 text-muted-foreground">Previous</th>
             )}
+            <SortableHeader label="Sentiment" sortKey="avg_sentiment" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-24" />
             {!compact && (
-              <SortableHeader label="Updated" sortKey="computed_at" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" />
+              <>
+                <SortableHeader label="Price" sortKey="current_price" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-24" />
+                <SortableHeader label="Mkt Cap" sortKey="market_cap" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-24" />
+              </>
             )}
           </tr>
         </thead>
@@ -122,33 +121,38 @@ export function TrendingStocksTable({ limit = 20, compact = false, category, cha
               onClick={() => router.push(`/stocks/${stock.ticker}`)}
             >
               <td className="py-3 px-3 text-muted-foreground">{i + 1}</td>
-              <td className="py-3 px-3 max-w-0">
-                <span className="font-bold text-foreground font-mono truncate block">{stock.ticker}</span>
+              <td className="py-3 px-3">
+                <span className="font-bold text-foreground font-mono">{stock.ticker}</span>
               </td>
               {!compact && (
-                <td className="py-3 px-3 text-muted-foreground max-w-0 truncate">
+                <td className="py-3 px-3 text-muted-foreground truncate max-w-0">
                   {stock.company_name || "—"}
                 </td>
               )}
               <td className="py-3 px-3">
-                <MomentumBar score={stock.score} />
+                <SignalChip label={stock.label} />
               </td>
-              <td className="py-3 px-3 text-right tabular-nums">{stock.mention_count}</td>
-              <td className={`py-3 px-3 text-right tabular-nums font-medium ${growthColor(stock.mention_growth_rate)}`}>
-                {growthLabel(stock.mention_growth_rate)}
-              </td>
+              {!compact && (
+                <td className="py-3 px-3">
+                  <SignalChip label={stock.previous_label} dim />
+                </td>
+              )}
               <td className="py-3 px-3">
                 <SentimentBadge score={stock.avg_sentiment} />
               </td>
               {!compact && (
-                <td className="py-3 px-3 text-right tabular-nums text-muted-foreground">
-                  {stock.unique_sources}
-                </td>
-              )}
-              {!compact && (
-                <td className="py-3 px-3 text-right text-muted-foreground text-xs">
-                  {timeAgo(stock.computed_at)}
-                </td>
+                <>
+                  <td className="py-3 px-3 text-right tabular-nums text-foreground">
+                    {stock.is_public === false
+                      ? <span className="text-muted-foreground text-xs">Private</span>
+                      : formatPrice(stock.current_price)}
+                  </td>
+                  <td className="py-3 px-3 text-right tabular-nums text-muted-foreground">
+                    {stock.is_public === false
+                      ? <span className="text-xs">Private</span>
+                      : stock.market_cap ? `$${formatLargeNumber(stock.market_cap)}` : "—"}
+                  </td>
+                </>
               )}
             </tr>
           ))}
