@@ -1,4 +1,4 @@
-import type { Source, StockTrending, ThemeTrending, DashboardStats, Mention, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, PodcastSearchResult, YoutubeChannelResolution, RedditFeed } from "@/types";
+import type { Source, StockTrending, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -138,6 +138,10 @@ export async function getStockMentions(
   return apiFetch(`/api/stocks/${ticker}/mentions?${q}`);
 }
 
+export async function getStockFilings(ticker: string, limit = 10): Promise<{ filings: StockFiling[] }> {
+  return apiFetch(`/api/stocks/${ticker}/filings?limit=${limit}`);
+}
+
 // --- Themes ---
 
 export async function getTrendingThemes(params?: {
@@ -213,6 +217,10 @@ export async function addPodcastFeed(data: {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export async function getPodcastFeedDetail(id: string): Promise<PodcastFeedDetail> {
+  return apiFetch(`/api/podcasts/${id}`);
 }
 
 export async function removePodcastFeed(id: string): Promise<void> {

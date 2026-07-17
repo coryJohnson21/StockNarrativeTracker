@@ -82,6 +82,22 @@ class StockListResponse(BaseModel):
     total: int
 
 
+class StockFilingResponse(BaseModel):
+    id: UUID
+    type: str
+    url: Optional[str]
+    title: Optional[str]
+    published_at: Optional[datetime]
+    period: Optional[str] = None
+    teaser: Optional[str] = None
+    summary: Optional[str] = None
+    filing_summary: Optional[str] = None
+
+
+class StockFilingListResponse(BaseModel):
+    filings: List[StockFilingResponse]
+
+
 # --- Themes ---
 
 class ThemeMomentumResponse(BaseModel):
@@ -153,6 +169,7 @@ class PodcastFeedResponse(BaseModel):
     last_polled_at: Optional[datetime]
     created_at: datetime
     episode_count: int = 0
+    latest_episode_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -160,6 +177,20 @@ class PodcastFeedResponse(BaseModel):
 
 class PodcastFeedListResponse(BaseModel):
     feeds: List[PodcastFeedResponse]
+
+
+class PodcastEpisodeResponse(BaseModel):
+    id: UUID
+    title: Optional[str]
+    published_at: Optional[datetime]
+    status: str
+    duration_seconds: Optional[int]
+    error_message: Optional[str]
+    summary: Optional[str] = None
+
+
+class PodcastFeedDetailResponse(PodcastFeedResponse):
+    episodes: List[PodcastEpisodeResponse]
 
 
 # --- Reddit Feeds ---

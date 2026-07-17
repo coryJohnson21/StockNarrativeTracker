@@ -12,7 +12,7 @@ from app.database import AsyncSessionLocal
 from app.models.models import Source, Transcript, Stock, Theme, StockMention, ThemeMention
 from app.services.youtube import download_audio, get_video_info, get_captions, parse_video_metadata
 from app.services.transcription import transcribe_audio
-from app.services.extraction import extract_from_transcript
+from app.services.extraction import extract_from_transcript, extract_filing_details
 from app.services.embeddings import generate_embedding
 from app.services.momentum import refresh_stock_momentum, refresh_theme_momentum
 from app.services import sec_edgar
@@ -242,6 +242,13 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
     tracked_themes = [name for (name,) in tracked_result.all()]
     extraction = await extract_from_transcript(transcript_text, source.title or "", known_themes=tracked_themes)
 
+    # Step 1b: Filing/earnings sources also get a dedicated period/teaser/earnings
+    # summary -- the generic transcript summary above is structured for financial
+    # media discussions, not a single-company earnings report.
+    filing_details = None
+    if source.type in sec_edgar.TRACKED_FORMS:
+        filing_details = await extract_filing_details(transcript_text, source.title or "")
+
     # Step 2: Generate embedding
     embedding = await generate_embedding(transcript_text)
 
@@ -292,6 +299,10 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
         "summary": extraction["summary"],
         "calls": extraction.get("calls", []),
     }
+    if filing_details:
+        source.source_metadata["period"] = filing_details["period"]
+        source.source_metadata["teaser"] = filing_details["teaser"]
+        source.source_metadata["filing_summary"] = filing_details["summary"]
 
     await db.commit()
 

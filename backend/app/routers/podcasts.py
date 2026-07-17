@@ -4,7 +4,13 @@ from sqlalchemy import select, func, desc
 
 from app.database import get_db
 from app.models.models import PodcastFeed, Source
-from app.schemas.schemas import PodcastFeedAddRequest, PodcastFeedResponse, PodcastFeedListResponse
+from app.schemas.schemas import (
+    PodcastFeedAddRequest,
+    PodcastFeedResponse,
+    PodcastFeedListResponse,
+    PodcastFeedDetailResponse,
+    PodcastEpisodeResponse,
+)
 from app.services import podcast as podcast_service
 from app.services import youtube as youtube_service
 from app.tasks.podcast_poll import poll_feed
@@ -33,11 +39,14 @@ async def resolve_youtube_channel(url: str = Query(..., min_length=1)):
 
 
 async def _build_response(db: AsyncSession, feed: PodcastFeed) -> PodcastFeedResponse:
-    count = (
+    row = (
         await db.execute(
-            select(func.count(Source.id)).where(Source.channel == feed.label)
+            select(
+                func.count(Source.id),
+                func.max(func.coalesce(Source.published_at, Source.created_at)),
+            ).where(Source.channel == feed.label)
         )
-    ).scalar() or 0
+    ).one()
     return PodcastFeedResponse(
         id=feed.id,
         url=feed.url,
@@ -45,7 +54,8 @@ async def _build_response(db: AsyncSession, feed: PodcastFeed) -> PodcastFeedRes
         source_type=feed.source_type,
         last_polled_at=feed.last_polled_at,
         created_at=feed.created_at,
-        episode_count=count,
+        episode_count=row[0] or 0,
+        latest_episode_at=row[1],
     )
 
 
@@ -72,6 +82,41 @@ async def add_feed(request: PodcastFeedAddRequest, db: AsyncSession = Depends(ge
     await db.refresh(feed)
 
     return await _build_response(db, feed)
+
+
+@router.get("/{feed_id}", response_model=PodcastFeedDetailResponse)
+async def get_feed(feed_id: str, db: AsyncSession = Depends(get_db)):
+    """Feed details plus every ingested episode/video for it, newest first, each
+    with its AI summary already embedded so the landing page doesn't need a
+    separate fetch per episode just to show what it was about."""
+    result = await db.execute(select(PodcastFeed).where(PodcastFeed.id == feed_id))
+    feed = result.scalar_one_or_none()
+    if feed is None:
+        raise HTTPException(status_code=404, detail="Feed not found")
+
+    base = await _build_response(db, feed)
+
+    sources_result = await db.execute(
+        select(Source)
+        .where(Source.channel == feed.label)
+        .order_by(desc(func.coalesce(Source.published_at, Source.created_at)))
+    )
+    sources = sources_result.scalars().all()
+
+    episodes = [
+        PodcastEpisodeResponse(
+            id=source.id,
+            title=source.title,
+            published_at=source.published_at,
+            status=source.status,
+            duration_seconds=source.duration_seconds,
+            error_message=source.error_message,
+            summary=(source.source_metadata or {}).get("summary"),
+        )
+        for source in sources
+    ]
+
+    return PodcastFeedDetailResponse(**base.model_dump(), episodes=episodes)
 
 
 @router.delete("/{feed_id}", status_code=204)

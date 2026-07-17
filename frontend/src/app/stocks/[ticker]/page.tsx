@@ -7,11 +7,22 @@ import { ArrowLeft, Loader2, AlertCircle, Landmark, Newspaper, ExternalLink, Bui
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { SentimentBadge } from "@/components/SentimentBadge";
 import { MomentumBar } from "@/components/MomentumBadge";
-import { getStockProfile, getStockMentions } from "@/lib/api";
+import { getStockProfile, getStockFilings } from "@/lib/api";
 import { formatLargeNumber, formatRatio, formatPrice } from "@/lib/utils";
 import { StockPriceChart } from "@/components/StockPriceChart";
 import { MomentumHistoryChart } from "@/components/MomentumHistoryChart";
-import type { StockProfile, Mention } from "@/types";
+import type { StockProfile, StockFiling } from "@/types";
+
+function filingPeriodLabel(f: StockFiling): string {
+  if (f.period) return f.period;
+  if (f.published_at) return new Date(f.published_at).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  return f.type;
+}
+
+function filingSnippet(f: StockFiling): string | undefined {
+  if (f.teaser) return f.teaser;
+  return f.summary?.split(/(?<=[.!?])\s/)[0];
+}
 
 function StatTile({ label, value }: { label: string; value: string }) {
   return (
@@ -29,7 +40,7 @@ export default function StockDetailPage() {
   const [profile, setProfile] = useState<StockProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filings, setFilings] = useState<Mention[]>([]);
+  const [filings, setFilings] = useState<StockFiling[]>([]);
 
   useEffect(() => {
     if (!ticker) return;
@@ -38,16 +49,8 @@ export default function StockDetailPage() {
       .then(setProfile)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-    getStockMentions(ticker, 50, "filing")
-      .then((r) => {
-        const seen = new Set<string>();
-        const unique = r.mentions.filter((m) => {
-          if (!m.source_url || seen.has(m.source_url)) return false;
-          seen.add(m.source_url);
-          return true;
-        });
-        setFilings(unique.slice(0, 10));
-      })
+    getStockFilings(ticker, 10)
+      .then((r) => setFilings(r.filings))
       .catch(() => setFilings([]));
   }, [ticker]);
 
@@ -136,7 +139,7 @@ export default function StockDetailPage() {
                 <MomentumHistoryChart ticker={profile.ticker} />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-4">
                 <div className="rounded-lg border p-4 space-y-2">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <Landmark className="h-4 w-4 text-emerald-400" />
@@ -151,23 +154,35 @@ export default function StockDetailPage() {
                     <SentimentBadge score={profile.mention_breakdown.filing.avg_sentiment} showNumber />
                   </div>
                   {filings.length > 0 && (
-                    <ul className="space-y-1 pt-1 border-t">
-                      {filings.map((m, i) => (
-                        <li key={i}>
-                          <a
-                            href={m.source_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline truncate"
-                          >
-                            <ExternalLink className="h-3 w-3 shrink-0" />
-                            <span className="truncate">
-                              {m.source_type} &middot;{" "}
-                              {m.mentioned_at ? new Date(m.mentioned_at).toLocaleDateString() : ""}
-                            </span>
-                          </a>
-                        </li>
-                      ))}
+                    <ul className="space-y-4 pt-3 border-t">
+                      {filings.map((f) => {
+                        const snippet = filingSnippet(f);
+                        return (
+                          <li key={f.id}>
+                            <a
+                              href={f.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="group flex items-start gap-2 hover:underline"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground group-hover:text-foreground" />
+                              <span className="text-sm font-semibold text-foreground leading-snug">
+                                {filingPeriodLabel(f)}
+                                {snippet && <>: {snippet}</>}
+                              </span>
+                            </a>
+                            <p className="text-[11px] text-muted-foreground mt-0.5 pl-[22px]">
+                              {f.type}
+                              {f.published_at ? ` · ${new Date(f.published_at).toLocaleDateString()}` : ""}
+                            </p>
+                            {(f.filing_summary || f.summary) && (
+                              <p className="text-xs text-muted-foreground leading-relaxed mt-1.5 pl-[22px]">
+                                {f.filing_summary || f.summary}
+                              </p>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>
@@ -197,7 +212,7 @@ export default function StockDetailPage() {
                   itself vs. independent coverage. Self-mentions count for less toward the
                   momentum score above.
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-4">
                   <div className="rounded-lg border p-4 space-y-2">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <Building2 className="h-4 w-4 text-amber-400" />

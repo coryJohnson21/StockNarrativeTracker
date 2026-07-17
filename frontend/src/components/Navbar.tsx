@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { TrendingUp, BarChart2, Layers, Upload, Database, Star } from "lucide-react";
+import { TrendingUp, BarChart2, Layers, Upload, Database, Star, Rss } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -10,6 +10,7 @@ const nav = [
   { href: "/watchlist", label: "Watchlist", icon: Star },
   { href: "/stocks", label: "Stocks", icon: TrendingUp },
   { href: "/themes", label: "Themes", icon: Layers },
+  { href: "/subscriptions", label: "Subscriptions", icon: Rss },
   { href: "/ingest", label: "Add Content", icon: Upload },
   { href: "/sources", label: "Sources", icon: Database },
 ];
@@ -18,22 +19,24 @@ export function Navbar() {
   const pathname = usePathname();
 
   return (
-    <nav className="border-b border-border bg-card/50 backdrop-blur sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 flex h-14 items-center gap-6">
-        <Link href="/" className="flex items-center gap-2 font-bold text-foreground mr-2">
-          <TrendingUp className="h-5 w-5 text-primary" />
-          <span>NarrativeTracker</span>
-        </Link>
-        <div className="flex items-center gap-1">
+    <nav className="bg-card/50 backdrop-blur sticky top-0 z-50 border-b border-border">
+      <div className="max-w-7xl mx-auto px-4">
+        <div className="flex h-16 items-center border-b border-border/50">
+          <Link href="/" className="flex items-center gap-2 font-bold text-foreground text-xl">
+            <TrendingUp className="h-6 w-6 text-primary" />
+            <span>NarrativeTracker</span>
+          </Link>
+        </div>
+        <div className="flex items-center justify-end gap-7 h-12">
           {nav.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                "flex items-center gap-1.5 h-full text-sm font-medium border-b-2 transition-colors",
                 pathname === href
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
               )}
             >
               <Icon className="h-4 w-4" />

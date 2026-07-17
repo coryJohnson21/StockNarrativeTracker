@@ -10,6 +10,6 @@ export function SignalChip({ label, dim = false }: { label?: string; dim?: boole
   if (!label) return <span className="text-muted-foreground">—</span>;
   const style = dim
     ? "text-muted-foreground text-xs"
-    : `inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${LABEL_STYLES[label] ?? "bg-muted text-muted-foreground"}`;
+    : `inline-flex w-24 items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium text-center ${LABEL_STYLES[label] ?? "bg-muted text-muted-foreground"}`;
   return <span className={style}>{label.charAt(0).toUpperCase() + label.slice(1)}</span>;
 }

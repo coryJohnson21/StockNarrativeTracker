@@ -104,7 +104,7 @@ export function TrendingStocksTable({ limit = 20, compact = false, category, cha
             {!compact && (
               <th className="text-left py-2 px-3 w-24 text-muted-foreground">Previous</th>
             )}
-            <SortableHeader label="Sentiment" sortKey="avg_sentiment" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-24" />
+            <SortableHeader label="Sentiment" sortKey="avg_sentiment" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} className="w-32" />
             {!compact && (
               <>
                 <SortableHeader label="Price" sortKey="current_price" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-24" />

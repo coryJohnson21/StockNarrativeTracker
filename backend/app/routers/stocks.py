@@ -6,7 +6,12 @@ from typing import Literal, Optional
 
 from app.database import get_db
 from app.models.models import Stock, StockMomentum, StockMention, StockProfile, StockNarrative
-from app.schemas.schemas import StockMomentumResponse, StockListResponse
+from app.schemas.schemas import (
+    StockMomentumResponse,
+    StockListResponse,
+    StockFilingResponse,
+    StockFilingListResponse,
+)
 from app.services.momentum import (
     get_trending_stocks_by_category,
     get_trending_stocks_by_channel,
@@ -164,6 +169,53 @@ async def get_stock_mentions(
     ]
 
     return {"ticker": ticker.upper(), "company": stock.company_name, "mentions": mentions}
+
+
+@router.get("/{ticker}/filings", response_model=StockFilingListResponse)
+async def get_stock_filings(
+    ticker: str,
+    limit: int = Query(10, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """One row per filing/earnings document this company itself filed (not per
+    mention, and not documents where the ticker was merely mentioned by someone
+    else -- e.g. a supplier's 10-Q citing NVDA as a customer), newest by the
+    document's actual filing/earnings date -- not when we happened to ingest it."""
+    stock_result = await db.execute(select(Stock).where(Stock.ticker == ticker.upper()))
+    stock = stock_result.scalar_one_or_none()
+    if stock is None:
+        return {"filings": []}
+
+    from app.models.models import Source
+
+    subq = select(StockMention.source_id).where(
+        StockMention.stock_id == stock.id,
+        StockMention.is_self_mention.is_(True),
+    )
+    q = (
+        select(Source)
+        .where(Source.type.in_(FILING_SOURCE_TYPES))
+        .where(Source.id.in_(subq))
+        .order_by(desc(func.coalesce(Source.published_at, Source.created_at)))
+        .limit(limit)
+    )
+    sources = (await db.execute(q)).scalars().all()
+
+    filings = [
+        StockFilingResponse(
+            id=source.id,
+            type=source.type,
+            url=source.url,
+            title=source.title,
+            published_at=source.published_at,
+            period=(source.source_metadata or {}).get("period"),
+            teaser=(source.source_metadata or {}).get("teaser"),
+            summary=(source.source_metadata or {}).get("summary"),
+            filing_summary=(source.source_metadata or {}).get("filing_summary"),
+        )
+        for source in sources
+    ]
+    return {"filings": filings}
 
 
 @router.get("/{ticker}/price-history")

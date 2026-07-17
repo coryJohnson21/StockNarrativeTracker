@@ -12,5 +12,9 @@ export function SentimentBadge({ score, showNumber = false }: Props) {
     ? `${score > 0 ? "+" : ""}${Math.round(score)}`
     : formatSentiment(score);
 
-  return <Badge variant={variant}>{label}</Badge>;
+  return (
+    <Badge variant={variant} className="w-28 justify-center">
+      {label}
+    </Badge>
+  );
 }

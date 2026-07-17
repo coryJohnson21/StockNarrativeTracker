@@ -236,6 +236,60 @@ async def extract_from_transcript(transcript: str, title: str = "", known_themes
     }
 
 
+FILING_DETAILS_PROMPT = """You are a financial analyst reviewing an SEC filing or earnings press release.
+
+Title: {title}
+
+Return a JSON object with EXACTLY this structure (no extra fields):
+{{
+  "period": "the fiscal quarter and year this document reports on, exactly as stated near the top of the document (e.g. \\"Q1 2026\\", \\"Q3 2026\\", or \\"FY2026\\" for an annual report) -- or null if no period is clearly stated",
+  "teaser": "one specific sentence, max 18 words, capturing the single most notable headline point of this document -- e.g. the key financial result, guidance change, or major announcement",
+  "summary": "4-6 sentence summary of THIS earnings report specifically"
+}}
+
+SUMMARY — 4-6 sentences covering, in order:
+  1. Headline financial results: revenue and EPS (or other top-line figures) with year-over-year or quarter-over-quarter comparison
+  2. The main driver(s) behind those results -- which segment, product, or trend
+  3-4. Any other notable results by segment/geography, margin trends, or operational highlights
+  5. Forward-looking guidance or management commentary on the outlook, if stated
+  6. Risks, headwinds, or concerns explicitly disclosed in the document, if any
+Only include sentences 3-6 if the document actually contains that information -- do not pad with generic filler. Plain prose, no bullet points, written for an investor audience.
+
+Document:
+{document}"""
+
+
+async def extract_filing_details(document_text: str, title: str = "") -> dict:
+    """Filing-specific extraction: fiscal period, one-line teaser, and a proper
+    earnings-report summary (distinct from the generic 12-sentence media summary
+    extract_from_transcript produces). Used both when a new SEC filing is ingested
+    and when backfilling filings that predate this field."""
+    client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+
+    response = await _create_with_retry(
+        client,
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "user",
+                "content": FILING_DETAILS_PROMPT.format(title=title or "Financial Filing", document=document_text[:12000]),
+            }
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.1,
+        max_tokens=500,
+    )
+
+    result = json.loads(response.choices[0].message.content)
+    period = result.get("period")
+    period = str(period).strip()[:20] if period else None
+    return {
+        "period": period or None,
+        "teaser": str(result.get("teaser", ""))[:200].strip(),
+        "summary": str(result.get("summary", ""))[:1500].strip(),
+    }
+
+
 async def condense_company_description(company: str, business_summary: str) -> str:
     """Condense Yahoo Finance's long business summary into a 4-sentence description."""
     client = openai.AsyncOpenAI(api_key=settings.openai_api_key)

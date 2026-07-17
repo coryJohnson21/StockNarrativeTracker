@@ -143,6 +143,21 @@ export interface PodcastFeed {
   last_polled_at?: string;
   created_at: string;
   episode_count: number;
+  latest_episode_at?: string;
+}
+
+export interface PodcastEpisode {
+  id: string;
+  title?: string;
+  published_at?: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  duration_seconds?: number;
+  error_message?: string;
+  summary?: string;
+}
+
+export interface PodcastFeedDetail extends PodcastFeed {
+  episodes: PodcastEpisode[];
 }
 
 export interface PodcastSearchResult {
@@ -164,6 +179,18 @@ export interface RedditFeed {
   last_polled_at?: string;
   created_at: string;
   post_count: number;
+}
+
+export interface StockFiling {
+  id: string;
+  type: string;
+  url?: string;
+  title?: string;
+  published_at?: string;
+  period?: string;
+  teaser?: string;
+  summary?: string;
+  filing_summary?: string;
 }
 
 export interface Mention {
