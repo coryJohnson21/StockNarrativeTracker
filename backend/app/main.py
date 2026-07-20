@@ -83,14 +83,19 @@ async def lifespan(app: FastAPI):
 
     await _seed_reddit_feeds()
     tasks = []
+    if settings.enable_auto_sec_scan:
+        tasks.append(asyncio.create_task(_periodic_sec_scan()))
+        logger.info(f"Auto SEC scan enabled: checking for new S&P 500 filings every {settings.sec_scan_interval_hours}h")
+    else:
+        logger.info("Auto SEC scan disabled (ENABLE_AUTO_SEC_SCAN not set); use POST /api/sec/scan on demand")
+
     if settings.enable_auto_ingest:
-        tasks = [
-            asyncio.create_task(_periodic_sec_scan()),
+        tasks += [
             asyncio.create_task(_periodic_podcast_poll()),
             asyncio.create_task(_periodic_reddit_poll()),
             asyncio.create_task(_periodic_market_data_refresh()),
         ]
-        logger.info("Auto-ingest enabled: periodic SEC/podcast/Reddit polling started")
+        logger.info("Auto-ingest enabled: periodic podcast/Reddit polling + market data refresh started")
     else:
         logger.info("Auto-ingest disabled (ENABLE_AUTO_INGEST not set); use on-demand endpoints")
     yield

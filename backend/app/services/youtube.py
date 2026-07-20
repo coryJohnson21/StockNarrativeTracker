@@ -151,9 +151,12 @@ def parse_video_metadata(info: dict) -> dict:
 
 
 async def resolve_channel(url_or_handle: str) -> Optional[dict]:
-    """Resolve a YouTube channel URL or @handle to its channel ID and uploads RSS
-    feed URL, so a user can subscribe to a channel the same way they'd subscribe to
-    a podcast RSS feed. Returns None if the input doesn't resolve to a channel."""
+    """Resolve a YouTube channel URL/@handle, OR a specific playlist URL within a
+    channel, to its uploads/playlist RSS feed URL -- so a user can subscribe to a
+    whole channel, or to just one show on a shared network channel (e.g. Bloomberg
+    Podcasts' "Odd Lots" playlist instead of every Bloomberg Podcasts upload), the
+    same way they'd subscribe to a podcast RSS feed. Returns None if the input
+    doesn't resolve to either."""
     target = url_or_handle.strip()
     if not target:
         return None
@@ -178,7 +181,18 @@ async def resolve_channel(url_or_handle: str) -> Optional[dict]:
     except Exception:
         return None
 
-    channel_id = info.get("channel_id") or (info.get("id") if str(info.get("id", "")).startswith("UC") else None)
+    raw_id = str(info.get("id") or "")
+    if raw_id.startswith(("PL", "UU", "OL", "FL")):
+        # A specific playlist, not a whole channel -- e.g. one show among many
+        # on a shared network channel.
+        title = info.get("title") or info.get("channel")
+        return {
+            "channel_id": raw_id,
+            "title": title,
+            "feed_url": f"https://www.youtube.com/feeds/videos.xml?playlist_id={raw_id}",
+        }
+
+    channel_id = info.get("channel_id") or (raw_id if raw_id.startswith("UC") else None)
     title = info.get("channel") or info.get("title") or info.get("uploader")
     if not channel_id:
         return None

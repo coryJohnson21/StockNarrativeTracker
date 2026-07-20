@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, AlertCircle, Landmark, Newspaper, ExternalLink, Building2, Globe } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { SentimentBadge } from "@/components/SentimentBadge";
 import { MomentumBar } from "@/components/MomentumBadge";
 import { getStockProfile, getStockFilings } from "@/lib/api";
@@ -23,6 +24,18 @@ function filingSnippet(f: StockFiling): string | undefined {
   if (f.teaser) return f.teaser;
   return f.summary?.split(/(?<=[.!?])\s/)[0];
 }
+
+function pctLabel(pct?: number): string | undefined {
+  if (pct === undefined || pct === null) return undefined;
+  return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
+}
+
+const GUIDANCE_VARIANT: Record<string, "bullish" | "bearish" | "neutral" | "secondary"> = {
+  raised: "bullish",
+  lowered: "bearish",
+  maintained: "neutral",
+  initiated: "secondary",
+};
 
 function StatTile({ label, value }: { label: string; value: string }) {
   return (
@@ -175,6 +188,71 @@ export default function StockDetailPage() {
                               {f.type}
                               {f.published_at ? ` · ${new Date(f.published_at).toLocaleDateString()}` : ""}
                             </p>
+                            {(f.revenue != null || f.eps != null || f.guidance_direction) && (
+                              <div className="flex flex-wrap items-start gap-x-6 gap-y-1.5 mt-2 pl-[22px] text-xs">
+                                {f.revenue != null && (
+                                  <div className="flex items-start gap-1.5">
+                                    <span>
+                                      <span className="text-muted-foreground">Revenue </span>
+                                      <span className="font-medium text-foreground">${formatLargeNumber(f.revenue)}</span>
+                                    </span>
+                                    {(f.revenue_yoy_pct != null || f.revenue_qoq_pct != null) && (
+                                      <div className="flex flex-col leading-tight">
+                                        {f.revenue_yoy_pct != null && (
+                                          <span className={f.revenue_yoy_pct >= 0 ? "text-green-400" : "text-red-400"}>
+                                            {pctLabel(f.revenue_yoy_pct)} YoY
+                                          </span>
+                                        )}
+                                        {f.revenue_qoq_pct != null && (
+                                          <span className={f.revenue_qoq_pct >= 0 ? "text-green-400" : "text-red-400"}>
+                                            {pctLabel(f.revenue_qoq_pct)} QoQ
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {f.eps != null && (
+                                  <div className="flex items-start gap-1.5">
+                                    <span>
+                                      <span className="text-muted-foreground">EPS </span>
+                                      <span className="font-medium text-foreground">${f.eps.toFixed(2)}</span>
+                                    </span>
+                                    {(f.eps_yoy_pct != null || f.eps_qoq_pct != null) && (
+                                      <div className="flex flex-col leading-tight">
+                                        {f.eps_yoy_pct != null && (
+                                          <span className={f.eps_yoy_pct >= 0 ? "text-green-400" : "text-red-400"}>
+                                            {pctLabel(f.eps_yoy_pct)} YoY
+                                          </span>
+                                        )}
+                                        {f.eps_qoq_pct != null && (
+                                          <span className={f.eps_qoq_pct >= 0 ? "text-green-400" : "text-red-400"}>
+                                            {pctLabel(f.eps_qoq_pct)} QoQ
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {f.guidance_direction && (
+                                  <Badge variant={GUIDANCE_VARIANT[f.guidance_direction]} className="capitalize">
+                                    Guidance {f.guidance_direction}
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
+                            {f.capital_returns && (
+                              <p className="text-[11px] text-muted-foreground mt-1.5 pl-[22px]">
+                                <span className="text-foreground font-medium">Capital returns — </span>
+                                {f.capital_returns}
+                              </p>
+                            )}
+                            {f.strategic_actions && (
+                              <p className="text-[11px] text-muted-foreground mt-1 pl-[22px]">
+                                <span className="text-foreground font-medium">Strategic — </span>
+                                {f.strategic_actions}
+                              </p>
+                            )}
                             {(f.filing_summary || f.summary) && (
                               <p className="text-xs text-muted-foreground leading-relaxed mt-1.5 pl-[22px]">
                                 {f.filing_summary || f.summary}

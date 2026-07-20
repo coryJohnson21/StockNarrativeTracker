@@ -12,9 +12,13 @@ class Settings(BaseSettings):
     sec_scan_interval_hours: int = 24
     podcast_poll_interval_minutes: int = 60
     reddit_poll_interval_minutes: int = 120
-    # Set ENABLE_AUTO_INGEST=true in .env to allow periodic background pulls.
-    # Defaults to false to avoid unexpected OpenAI spend.
+    # Set ENABLE_AUTO_INGEST=true in .env to allow periodic podcast/Reddit
+    # polling + market data refresh. Defaults to false to avoid unexpected spend.
     enable_auto_ingest: bool = False
+    # Separate switch just for the daily SEC filing scan (new S&P 500
+    # 10-K/10-Q/8-K filings only -- never backfills), independent of the
+    # podcast/Reddit auto-ingest above.
+    enable_auto_sec_scan: bool = False
 
     class Config:
         env_file = ".env"

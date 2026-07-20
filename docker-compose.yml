@@ -26,6 +26,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       SEC_CONTACT_EMAIL: ${SEC_CONTACT_EMAIL}
       CORS_ORIGINS: '["http://localhost:3000"]'
+      ENABLE_AUTO_SEC_SCAN: "true"
     depends_on:
       db:
         condition: service_healthy

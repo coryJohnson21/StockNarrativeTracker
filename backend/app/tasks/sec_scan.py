@@ -10,7 +10,7 @@ from app.database import AsyncSessionLocal
 from app.models.models import Source
 from app.data.sp500 import get_sp500_constituents, find_company
 from app.services import sec_edgar
-from app.tasks.processing import process_sec_filing_source
+from app.tasks.processing import process_sec_filing_source, _get_or_create_stock
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,14 @@ async def _discover_ticker(ticker: str, since_date: str) -> List[str]:
 
     created_ids = []
     async with AsyncSessionLocal() as db:
+        # Guarantee this company shows up as a trackable stock (profile page,
+        # filings list) as soon as we've ingested a filing for it, rather than
+        # depending on the AI extraction to happen to tag its own ticker/name
+        # somewhere in dense legal filing text -- that works for a handful of
+        # consumer-household names but misses it for most S&P 500 companies.
+        await _get_or_create_stock(db, ticker, company["company"])
+        await db.commit()
+
         for filing in filings:
             existing = await db.execute(select(Source).where(Source.url == filing["document_url"]))
             if existing.scalar_one_or_none() is not None:

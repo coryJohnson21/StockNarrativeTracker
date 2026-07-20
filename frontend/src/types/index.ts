@@ -191,6 +191,16 @@ export interface StockFiling {
   teaser?: string;
   summary?: string;
   filing_summary?: string;
+  revenue?: number;
+  revenue_yoy_pct?: number;
+  revenue_qoq_pct?: number;
+  eps?: number;
+  eps_yoy_pct?: number;
+  eps_qoq_pct?: number;
+  net_income?: number;
+  guidance_direction?: "raised" | "lowered" | "maintained" | "initiated";
+  capital_returns?: string;
+  strategic_actions?: string;
 }
 
 export interface Mention {

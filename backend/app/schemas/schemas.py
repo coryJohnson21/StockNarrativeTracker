@@ -92,6 +92,16 @@ class StockFilingResponse(BaseModel):
     teaser: Optional[str] = None
     summary: Optional[str] = None
     filing_summary: Optional[str] = None
+    revenue: Optional[float] = None
+    revenue_yoy_pct: Optional[float] = None
+    revenue_qoq_pct: Optional[float] = None
+    eps: Optional[float] = None
+    eps_yoy_pct: Optional[float] = None
+    eps_qoq_pct: Optional[float] = None
+    net_income: Optional[float] = None
+    guidance_direction: Optional[str] = None
+    capital_returns: Optional[str] = None
+    strategic_actions: Optional[str] = None
 
 
 class StockFilingListResponse(BaseModel):

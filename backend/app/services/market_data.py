@@ -87,6 +87,12 @@ async def fetch_price_history(ticker: str, range_: str = "6mo", interval: str = 
 
 async def fetch_market_data(ticker: str) -> Optional[MarketData]:
     """Fetch live price + fundamentals from Yahoo Finance's unofficial APIs."""
+    # Yahoo Finance uses a dash for share classes (BRK-B), not the dot S&P's own
+    # constituent lists use (BRK.B) -- querying with the dot silently returns an
+    # all-null result rather than an error, so multi-class tickers would otherwise
+    # look "delisted" forever.
+    ticker = ticker.replace(".", "-")
+
     async with httpx.AsyncClient() as client:
         crumb, cookies = await _get_crumb(client)
         if not crumb:

@@ -300,9 +300,20 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
         "calls": extraction.get("calls", []),
     }
     if filing_details:
+        source.source_metadata["filing_details_version"] = 3
         source.source_metadata["period"] = filing_details["period"]
         source.source_metadata["teaser"] = filing_details["teaser"]
         source.source_metadata["filing_summary"] = filing_details["summary"]
+        source.source_metadata["revenue"] = filing_details["revenue"]
+        source.source_metadata["revenue_yoy_pct"] = filing_details["revenue_yoy_pct"]
+        source.source_metadata["revenue_qoq_pct"] = filing_details["revenue_qoq_pct"]
+        source.source_metadata["eps"] = filing_details["eps"]
+        source.source_metadata["eps_yoy_pct"] = filing_details["eps_yoy_pct"]
+        source.source_metadata["eps_qoq_pct"] = filing_details["eps_qoq_pct"]
+        source.source_metadata["net_income"] = filing_details["net_income"]
+        source.source_metadata["guidance_direction"] = filing_details["guidance_direction"]
+        source.source_metadata["capital_returns"] = filing_details["capital_returns"]
+        source.source_metadata["strategic_actions"] = filing_details["strategic_actions"]
 
     await db.commit()
 

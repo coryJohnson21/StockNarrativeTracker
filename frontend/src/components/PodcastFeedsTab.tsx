@@ -203,14 +203,16 @@ export function PodcastFeedsTab() {
       </div>
 
       <div className="space-y-2 border-t pt-4">
-        <label className="text-sm font-medium block">Subscribe to a YouTube channel</label>
+        <label className="text-sm font-medium block">Subscribe to a YouTube channel or playlist</label>
         <p className="text-xs text-muted-foreground">
           New videos are transcribed from YouTube's own captions when available — free, no Whisper
-          cost — falling back to audio transcription only if a video has no caption track.
+          cost — falling back to audio transcription only if a video has no caption track. Paste a
+          playlist URL instead of a channel to follow just one show on a shared network channel —
+          e.g. Bloomberg Podcasts' "Odd Lots" playlist instead of every Bloomberg Podcasts upload.
         </p>
         <form onSubmit={handleResolveChannel} className="flex items-center gap-2">
           <Input
-            placeholder="Channel URL or @handle, e.g. @Fundstrat"
+            placeholder="Channel URL, @handle, or playlist URL"
             value={channelInput}
             onChange={(e) => setChannelInput(e.target.value)}
           />

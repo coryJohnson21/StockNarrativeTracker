@@ -14,6 +14,20 @@ _TICKER_ALIASES: dict[str, str] = {
     "BRK/B": "BRK-B",
     "BRKA": "BRK-A",
     "BRKB": "BRK-B",
+    # Block Inc changed its ticker from SQ to XYZ -- normalize the old symbol so
+    # stray extractions don't re-split the company back into two stock rows.
+    "SQ": "XYZ",
+    "SQUARE": "XYZ",
+    # SpaceX is public now; HXSCL was never a real symbol (SK Hynix's actual
+    # US OTC ticker is SKHY). SPCE is deliberately NOT aliased here -- that's
+    # Virgin Galactic's real ticker, a different company.
+    "SPACEX": "SPCX",
+    "HXSCL": "SKHY",
+    # NextEra Energy and its wholly-owned utility subsidiary trade under one
+    # ticker; "NEX" isn't real. TerraWulf's actual ticker is WULF, not TWL.
+    "NEX": "NEE",
+    "FPL": "NEE",
+    "TWL": "WULF",
 }
 
 _INDEX_RE = re.compile(
@@ -109,13 +123,13 @@ TICKER FORMAT — always use the official US exchange ticker symbol:
   - Johnson & Johnson / J&J → JNJ
   - Berkshire Hathaway Class A → BRK-A (use dash, never dot: NOT BRK.A)
   - Berkshire Hathaway Class B → BRK-B (use dash, never dot: NOT BRK.B)
-  - Alphabet → GOOGL, Meta → META, NextEra Energy → NEE, Block / Square → SQ
+  - Alphabet → GOOGL, Meta → META, NextEra Energy → NEE, Block (formerly Square) → XYZ, SpaceX → SPCX, SK Hynix → SKHY
   - For foreign companies listed in the US as ADRs, use the ADR ticker (e.g. Toyota → TM, Alibaba → BABA, ASML → ASML)
-  - For foreign companies with no US listing (e.g. Lufthansa, Hapag-Lloyd, SK Hynix), still include them but note in company field that they are foreign-listed
-  - NEVER use spaces in a ticker — "SK HYNIX" is wrong; use "HXSCL" (its US OTC symbol) or omit if unknown
+  - For foreign companies with no US ADR/OTC ticker, still include them but note in company field that they are foreign-listed, and omit the ticker rather than guessing one
+  - NEVER use spaces in a ticker — "SK HYNIX" is wrong, use SKHY
   - NEVER include stock market indexes as stocks (S&P 500, Dow Jones, Nasdaq Composite, Russell 2000 are indexes, not stocks — omit them entirely)
   - NEVER include ETFs or mutual funds as individual stocks unless the transcript is specifically discussing the ETF itself
-  - Private companies (OpenAI, SpaceX, Anthropic, etc.) should still be included — just use a reasonable ticker abbreviation (OPENAI, SPACEX, ANTHROPIC)
+  - Genuinely private companies (OpenAI, Anthropic, etc.) should still be included — just use a reasonable ticker abbreviation (OPENAI, ANTHROPIC). Don't assume a company is private without being sure -- SpaceX, for example, is public (SPCX).
 
 SUMMARY — write exactly 12 sentences in this order:
   Sentences 1-2: Overall market backdrop and macro environment discussed in this episode
@@ -244,26 +258,54 @@ Return a JSON object with EXACTLY this structure (no extra fields):
 {{
   "period": "the fiscal quarter and year this document reports on, exactly as stated near the top of the document (e.g. \\"Q1 2026\\", \\"Q3 2026\\", or \\"FY2026\\" for an annual report) -- or null if no period is clearly stated",
   "teaser": "one specific sentence, max 18 words, capturing the single most notable headline point of this document -- e.g. the key financial result, guidance change, or major announcement",
-  "summary": "4-6 sentence summary of THIS earnings report specifically"
+  "summary": "4-8 sentence summary of THIS earnings report specifically, per the SUMMARY rules below",
+  "metrics": {{
+    "revenue": "revenue for the period in raw USD dollars, no abbreviations (e.g. 81600000000 for $81.6 billion), as a number, or null if not stated",
+    "revenue_yoy_pct": "year-over-year revenue growth as a number (e.g. 85 for +85%, -12 for -12%), or null if not stated or not computable",
+    "revenue_qoq_pct": "sequential (quarter-over-quarter, vs. the immediately preceding quarter) revenue growth as a number -- ONLY for 10-Q filings, never for a 10-K/annual report (no prior quarter to compare); null if not stated or not applicable",
+    "eps": "diluted earnings per share in USD as a number (GAAP if both GAAP and non-GAAP are given), or null if not stated",
+    "eps_yoy_pct": "year-over-year EPS growth as a number, or null if not stated or not computable",
+    "eps_qoq_pct": "sequential (quarter-over-quarter) EPS growth as a number -- ONLY for 10-Q filings, never for a 10-K/annual report; null if not stated or not applicable",
+    "net_income": "net income for the period in raw USD dollars, no abbreviations, as a number, or null if not stated",
+    "guidance_direction": "exactly one of \\"raised\\", \\"lowered\\", \\"maintained\\", \\"initiated\\" if the filing discusses forward guidance relative to a prior outlook or issues new guidance -- or null if no forward guidance is discussed at all"
+  }},
+  "capital_returns": "one sentence on share buybacks and/or dividend actions (authorization, increase, suspension, amount) if disclosed in this document, else null",
+  "strategic_actions": "one sentence on M&A, divestitures, or major strategic pivots (new segment, restructuring, major partnership) if disclosed in this document, else null"
 }}
 
-SUMMARY — 4-6 sentences covering, in order:
+SUMMARY — 4-8 sentences covering, in order, ONLY the categories that actually apply (do not pad with generic filler if a category doesn't apply to this document):
   1. Headline financial results: revenue and EPS (or other top-line figures) with year-over-year or quarter-over-quarter comparison
   2. The main driver(s) behind those results -- which segment, product, or trend
   3-4. Any other notable results by segment/geography, margin trends, or operational highlights
-  5. Forward-looking guidance or management commentary on the outlook, if stated
-  6. Risks, headwinds, or concerns explicitly disclosed in the document, if any
-Only include sentences 3-6 if the document actually contains that information -- do not pad with generic filler. Plain prose, no bullet points, written for an investor audience.
+  5. Capital returns (buybacks/dividends) if disclosed
+  6. M&A or strategic actions if disclosed
+  7. Forward-looking guidance -- explicitly state whether it was raised, lowered, maintained, or newly initiated, and the outlook commentary
+  8. Risks, headwinds, or concerns explicitly disclosed in the document, if any
+Plain prose, no bullet points, written for an investor audience. The summary and the dedicated fields above (metrics, capital_returns, strategic_actions) should agree with each other.
 
 Document:
 {document}"""
 
 
+_GUIDANCE_DIRECTIONS = ("raised", "lowered", "maintained", "initiated")
+
+
+def _as_number(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 async def extract_filing_details(document_text: str, title: str = "") -> dict:
-    """Filing-specific extraction: fiscal period, one-line teaser, and a proper
+    """Filing-specific extraction: fiscal period, one-line teaser, a proper
     earnings-report summary (distinct from the generic 12-sentence media summary
-    extract_from_transcript produces). Used both when a new SEC filing is ingested
-    and when backfilling filings that predate this field."""
+    extract_from_transcript produces), headline financial metrics as structured
+    fields, and explicit capital-return/M&A/guidance-direction callouts. Used both
+    when a new SEC filing is ingested and when backfilling filings that predate
+    these fields."""
     client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
 
     response = await _create_with_retry(
@@ -277,16 +319,34 @@ async def extract_filing_details(document_text: str, title: str = "") -> dict:
         ],
         response_format={"type": "json_object"},
         temperature=0.1,
-        max_tokens=500,
+        max_tokens=700,
     )
 
     result = json.loads(response.choices[0].message.content)
     period = result.get("period")
     period = str(period).strip()[:20] if period else None
+
+    metrics = result.get("metrics") or {}
+    guidance_direction = metrics.get("guidance_direction")
+    guidance_direction = guidance_direction if guidance_direction in _GUIDANCE_DIRECTIONS else None
+
+    capital_returns = result.get("capital_returns")
+    strategic_actions = result.get("strategic_actions")
+
     return {
         "period": period or None,
         "teaser": str(result.get("teaser", ""))[:200].strip(),
-        "summary": str(result.get("summary", ""))[:1500].strip(),
+        "summary": str(result.get("summary", ""))[:2000].strip(),
+        "revenue": _as_number(metrics.get("revenue")),
+        "revenue_yoy_pct": _as_number(metrics.get("revenue_yoy_pct")),
+        "revenue_qoq_pct": _as_number(metrics.get("revenue_qoq_pct")),
+        "eps": _as_number(metrics.get("eps")),
+        "eps_yoy_pct": _as_number(metrics.get("eps_yoy_pct")),
+        "eps_qoq_pct": _as_number(metrics.get("eps_qoq_pct")),
+        "net_income": _as_number(metrics.get("net_income")),
+        "guidance_direction": guidance_direction,
+        "capital_returns": str(capital_returns)[:300].strip() if capital_returns else None,
+        "strategic_actions": str(strategic_actions)[:300].strip() if strategic_actions else None,
     }
 
 

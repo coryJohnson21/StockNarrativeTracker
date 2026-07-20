@@ -180,22 +180,21 @@ async def get_stock_filings(
     """One row per filing/earnings document this company itself filed (not per
     mention, and not documents where the ticker was merely mentioned by someone
     else -- e.g. a supplier's 10-Q citing NVDA as a customer), newest by the
-    document's actual filing/earnings date -- not when we happened to ingest it."""
-    stock_result = await db.execute(select(Stock).where(Stock.ticker == ticker.upper()))
-    stock = stock_result.scalar_one_or_none()
-    if stock is None:
-        return {"filings": []}
+    document's actual filing/earnings date -- not when we happened to ingest it.
 
+    Ownership is determined by source_metadata.ticker, which the SEC scanner sets
+    directly at ingestion time (app/tasks/sec_scan.py) for every filing it pulls --
+    not by the AI-detected self-mention flag on StockMention, which requires the
+    general extraction pass to have recognized the company's own name/ticker
+    within its own filing text. That works reliably for a handful of
+    consumer-household names (AAPL, NVDA) but misses it for most other companies,
+    which would otherwise make this section look empty for the rest of the S&P 500."""
     from app.models.models import Source
 
-    subq = select(StockMention.source_id).where(
-        StockMention.stock_id == stock.id,
-        StockMention.is_self_mention.is_(True),
-    )
     q = (
         select(Source)
         .where(Source.type.in_(FILING_SOURCE_TYPES))
-        .where(Source.id.in_(subq))
+        .where(Source.source_metadata["ticker"].astext == ticker.upper())
         .order_by(desc(func.coalesce(Source.published_at, Source.created_at)))
         .limit(limit)
     )
@@ -212,6 +211,16 @@ async def get_stock_filings(
             teaser=(source.source_metadata or {}).get("teaser"),
             summary=(source.source_metadata or {}).get("summary"),
             filing_summary=(source.source_metadata or {}).get("filing_summary"),
+            revenue=(source.source_metadata or {}).get("revenue"),
+            revenue_yoy_pct=(source.source_metadata or {}).get("revenue_yoy_pct"),
+            revenue_qoq_pct=(source.source_metadata or {}).get("revenue_qoq_pct"),
+            eps=(source.source_metadata or {}).get("eps"),
+            eps_yoy_pct=(source.source_metadata or {}).get("eps_yoy_pct"),
+            eps_qoq_pct=(source.source_metadata or {}).get("eps_qoq_pct"),
+            net_income=(source.source_metadata or {}).get("net_income"),
+            guidance_direction=(source.source_metadata or {}).get("guidance_direction"),
+            capital_returns=(source.source_metadata or {}).get("capital_returns"),
+            strategic_actions=(source.source_metadata or {}).get("strategic_actions"),
         )
         for source in sources
     ]

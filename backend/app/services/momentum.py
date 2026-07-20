@@ -615,18 +615,33 @@ async def refresh_market_data_cache(db: AsyncSession) -> None:
     )).all()
 
     for stock, momentum in rows:
-        try:
-            md = await _market_data.fetch_market_data(stock.ticker)
-            price = md.get("current_price") if md else None
-            stock.is_public = bool(price)
-            if price:
-                momentum.current_price = price
-                momentum.market_cap = md.get("market_cap")
-            else:
-                momentum.current_price = None
-                momentum.market_cap = None
-        except Exception:
-            pass
+        md = None
+        # Yahoo's unofficial API is flaky under sequential batch load -- a None
+        # result here is far more often a transient hiccup than a real "no data,"
+        # so retry a couple times before treating it as one.
+        for attempt in range(3):
+            try:
+                md = await _market_data.fetch_market_data(stock.ticker)
+            except Exception:
+                md = None
+            if md and md.get("current_price"):
+                break
+            if attempt < 2:
+                await asyncio.sleep(1.0)
+
+        price = md.get("current_price") if md else None
+        if price:
+            stock.is_public = True
+            momentum.current_price = price
+            momentum.market_cap = md.get("market_cap")
+        elif stock.is_public is None:
+            # Never successfully fetched before -- safe to mark as no-data.
+            # Will flip to True automatically once/if a fetch succeeds.
+            stock.is_public = False
+        # else: this stock previously had a confirmed status (public with a
+        # price, or confirmed private/delisted) -- leave it alone rather than
+        # let one more failed fetch wipe out or flap a previously-good value.
+
         await asyncio.sleep(0.25)
 
     await db.commit()
