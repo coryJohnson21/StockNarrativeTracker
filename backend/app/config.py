@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     # 10-K/10-Q/8-K filings only -- never backfills), independent of the
     # podcast/Reddit auto-ingest above.
     enable_auto_sec_scan: bool = False
+    # Optional Reddit "script" app credentials (reddit.com/prefs/apps). With them,
+    # posts and comments come from the official OAuth API; without them we fall
+    # back to the public Atom feed, which Reddit still serves but which has no
+    # comments and is subject to anti-bot blocking.
+    reddit_client_id: str = ""
+    reddit_client_secret: str = ""
 
     class Config:
         env_file = ".env"

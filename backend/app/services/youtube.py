@@ -1,7 +1,9 @@
 import asyncio
 import json
+import logging
 import os
 import re
+import time
 from typing import Optional
 import feedparser
 import httpx
@@ -94,17 +96,50 @@ async def get_captions(info: dict) -> Optional[str]:
     fmt_order = ("json3", "vtt") if is_auto else ("vtt", "json3")
     entry = next((f for fmt in fmt_order for f in track if f.get("ext") == fmt), None) or track[0]
 
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        response = await client.get(entry["url"])
-        response.raise_for_status()
-        raw = response.text
-
+    raw = await _fetch_caption_track(entry["url"])
+    if raw is None:
+        logging.getLogger(__name__).warning(
+            "YouTube kept rate-limiting the caption track for %s; falling back to audio transcription", entry["url"][:80]
+        )
+        return None
     text = _parse_json3(raw) if entry.get("ext") == "json3" else _parse_vtt(raw)
     return text if len(text) >= _MIN_CAPTION_LENGTH else None
 
 
+# YouTube's timedtext endpoint rate-limits an IP with 429s once it has served a
+# couple dozen tracks in a short span, and the block can persist for a while.
+# Space requests out and back off a few times; if it still refuses, return None so
+# the caller falls back to downloading audio and transcribing it rather than
+# failing the video outright.
+_CAPTION_MIN_GAP_SECONDS = 3.0
+_CAPTION_RETRY_WAITS = (10, 30, 60)
+_caption_lock = asyncio.Lock()
+_last_caption_fetch = 0.0
+
+
+async def _fetch_caption_track(url: str) -> Optional[str]:
+    global _last_caption_fetch
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        for wait in (0,) + _CAPTION_RETRY_WAITS:
+            if wait:
+                await asyncio.sleep(wait)
+            async with _caption_lock:
+                gap = _CAPTION_MIN_GAP_SECONDS - (time.monotonic() - _last_caption_fetch)
+                if gap > 0:
+                    await asyncio.sleep(gap)
+                response = await client.get(url)
+                _last_caption_fetch = time.monotonic()
+            if response.status_code == 429:
+                continue
+            response.raise_for_status()
+            return response.text
+    return None
+
+
 async def download_audio(url: str, output_path: str) -> str:
-    """Download audio from YouTube URL, return path to mp3 file."""
+    """Download a YouTube video's audio as 16kHz mono 32kbps mp3 -- the same encode
+    podcast episodes get, so ~100 minutes fits under Whisper's 25MB upload cap
+    (Whisper resamples to 16kHz mono internally anyway)."""
     os.makedirs(settings.temp_dir, exist_ok=True)
 
     ydl_opts = {
@@ -113,9 +148,10 @@ async def download_audio(url: str, output_path: str) -> str:
             {
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": "64",
+                "preferredquality": "32",
             }
         ],
+        "postprocessor_args": {"FFmpegExtractAudio": ["-ac", "1", "-ar", "16000"]},
         "outtmpl": output_path,
         "quiet": True,
         "no_warnings": True,

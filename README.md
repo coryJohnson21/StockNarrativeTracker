@@ -78,6 +78,13 @@ Migrations are the source of truth for the schema. The app also runs `Base.metad
 alembic stamp head
 ```
 
+### Operational notes
+
+- **Auto-ingest** (`ENABLE_AUTO_INGEST=true`) runs podcast/YouTube polling hourly, Reddit every two hours, a market-data refresh every six, and the research refresh daily. Each periodic task sleeps one interval before its first run so dev reloads don't fire them.
+- **Catching up after downtime.** Pollers only take the newest few items since their last poll. To fill a gap: `POST /api/podcasts/poll-all?since=YYYY-MM-DD&max_new=15`, `POST /api/sec/scan?since=YYYY-MM-DD`, and `POST /api/reddit/{id}/poll` (Reddit has no history; hot posts are whatever is hot now).
+- **Reloads kill background jobs.** The dev server runs `uvicorn --reload`; saving any backend file while an ingest is running makes uvicorn wait for that job before restarting (the API stops answering) or, if the worker is killed, leaves sources stuck in `pending`/`processing`. Recover with `docker compose exec backend python -m app.tasks.reprocess_stuck`. For a long backfill, run it as a detached process rather than through an endpoint.
+- **Reddit** blocks `www.reddit.com/*.json` for non-browser clients; the client uses `api.reddit.com`, which serves the same JSON to a descriptive User-Agent.
+
 ### Backend tests
 
 ```bash

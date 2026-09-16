@@ -1,3 +1,5 @@
+from datetime import date, datetime
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
@@ -142,8 +144,15 @@ async def poll_now(feed_id: str, background_tasks: BackgroundTasks, db: AsyncSes
 
 
 @router.post("/poll-all")
-async def poll_all_now(background_tasks: BackgroundTasks):
+async def poll_all_now(
+    background_tasks: BackgroundTasks,
+    since: date | None = Query(None, description="Catch-up mode: ingest everything published on/after this date instead of since the last poll"),
+    max_new: int | None = Query(None, ge=1, le=50, description="Per-feed cap for catch-up mode (default 3)"),
+):
     """Check every subscribed feed for new episodes right now instead of waiting
-    for the periodic poller."""
-    background_tasks.add_task(poll_all_feeds)
-    return {"status": "started", "detail": "Checking all feeds for new episodes in the background"}
+    for the periodic poller. Pass ?since=YYYY-MM-DD&max_new=N to fill a gap after
+    the poller has been off."""
+    since_dt = datetime.combine(since, datetime.min.time()) if since else None
+    background_tasks.add_task(poll_all_feeds, since_dt, max_new)
+    detail = f"Ingesting episodes published since {since}" if since else "Checking all feeds for new episodes"
+    return {"status": "started", "detail": f"{detail} in the background"}

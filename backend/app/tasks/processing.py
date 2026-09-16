@@ -90,29 +90,31 @@ async def process_youtube_source(source_id: str) -> None:
             # Step 1: Metadata (also carries the caption track listing, so this is
             # always fetched even if title/duration were already set on retry).
             info = await get_video_info(source.url)
-            if not source.title:
-                meta = parse_video_metadata(info)
-                source.title = meta["title"]
-                source.channel = meta["channel"]
-                source.duration_seconds = meta["duration_seconds"]
-                if meta["published_at"]:
-                    try:
-                        source.published_at = datetime.strptime(meta["published_at"], "%Y%m%d")
-                    except Exception:
-                        pass
-                await db.commit()
+            # Fill whatever the poller didn't know. Feed-created sources arrive with
+            # a title but no duration, and the Whisper cap below needs the duration.
+            meta = parse_video_metadata(info)
+            source.title = source.title or meta["title"]
+            source.channel = source.channel or meta["channel"]
+            source.duration_seconds = source.duration_seconds or meta["duration_seconds"]
+            if not source.published_at and meta["published_at"]:
+                try:
+                    source.published_at = datetime.strptime(meta["published_at"], "%Y%m%d")
+                except Exception:
+                    pass
+            await db.commit()
 
             # Step 2: Prefer YouTube's own captions -- free, and skips downloading
             # audio and calling Whisper entirely when a usable track exists.
             transcript_text = await get_captions(info)
 
             if transcript_text is None:
-                # No usable caption track -- fall back to audio + Whisper, which
-                # caps uploads at 25MB (~50 minutes of audio at 64kbps).
-                if source.duration_seconds and source.duration_seconds > 50 * 60:
+                # No usable caption track (or YouTube is rate-limiting captions) --
+                # fall back to audio + Whisper. At the 16kHz/mono/32kbps encode
+                # download_audio uses, Whisper's 25MB cap is ~100 minutes.
+                if source.duration_seconds and source.duration_seconds > _MAX_PODCAST_DURATION_SECONDS:
                     raise ValueError(
                         f"Video is {source.duration_seconds // 60} minutes long, which exceeds "
-                        "the ~50 minute limit for transcription and has no usable caption track"
+                        f"the ~{_MAX_PODCAST_DURATION_SECONDS // 60} minute transcription limit, and has no usable caption track"
                     )
 
                 tmp_path = os.path.join(settings.temp_dir, f"{source_id}")

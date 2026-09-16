@@ -25,6 +25,7 @@ services:
       SEC_CONTACT_EMAIL: ${SEC_CONTACT_EMAIL}
       CORS_ORIGINS: '["http://localhost:3000"]'
       ENABLE_AUTO_SEC_SCAN: "true"
+      ENABLE_AUTO_INGEST: "true"
     depends_on:
       db:
         condition: service_healthy

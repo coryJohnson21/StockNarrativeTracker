@@ -37,10 +37,13 @@ async def _process_bounded(source_id: str, is_youtube_channel: bool) -> None:
             await process_podcast_episode_source(source_id)
 
 
-async def poll_feed(feed_id) -> list[str]:
+async def poll_feed(feed_id, since: datetime | None = None, max_new: int | None = None) -> list[str]:
     """Fetch one feed (podcast RSS or a YouTube channel's uploads feed), create Source
     rows for episodes/videos published since the last poll (deduped by URL as a safety
-    net), process them, and stamp last_polled_at."""
+    net), process them, and stamp last_polled_at.
+
+    `since` and `max_new` override the normal "since last poll, newest 3" behaviour
+    for an explicit catch-up after the poller has been off for a while."""
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(PodcastFeed).where(PodcastFeed.id == feed_id))
         feed = result.scalar_one_or_none()
@@ -48,7 +51,8 @@ async def poll_feed(feed_id) -> list[str]:
             raise ValueError("Podcast feed not found")
 
         is_youtube_channel = feed.source_type == "youtube"
-        cutoff = feed.last_polled_at or (datetime.utcnow() - timedelta(hours=FIRST_POLL_LOOKBACK_HOURS))
+        cutoff = since or feed.last_polled_at or (datetime.utcnow() - timedelta(hours=FIRST_POLL_LOOKBACK_HOURS))
+        cap = max_new or MAX_NEW_EPISODES_PER_POLL
 
         if is_youtube_channel:
             episodes = await youtube_service.parse_channel_feed(feed.url)
@@ -60,7 +64,7 @@ async def poll_feed(feed_id) -> list[str]:
 
         created_ids = []
         for ep in episodes:
-            if len(created_ids) >= MAX_NEW_EPISODES_PER_POLL:
+            if len(created_ids) >= cap:
                 break
 
             # No publish date means we can't confirm this is actually new -- and
@@ -97,7 +101,7 @@ async def poll_feed(feed_id) -> list[str]:
     return created_ids
 
 
-async def poll_all_feeds() -> dict:
+async def poll_all_feeds(since: datetime | None = None, max_new: int | None = None) -> dict:
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(PodcastFeed.id))
         feed_ids = [row[0] for row in result.all()]
@@ -106,7 +110,7 @@ async def poll_all_feeds() -> dict:
     failed = []
     for feed_id in feed_ids:
         try:
-            total_new += len(await poll_feed(feed_id))
+            total_new += len(await poll_feed(feed_id, since=since, max_new=max_new))
         except Exception:
             logger.exception(f"Podcast feed poll failed for {feed_id}")
             failed.append(str(feed_id))
