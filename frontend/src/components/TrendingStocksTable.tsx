@@ -138,7 +138,15 @@ export function TrendingStocksTable({ limit = 20, compact = false, category, cha
                 </td>
               )}
               <td className="py-3 px-3">
-                <SentimentBadge score={stock.avg_sentiment} />
+                <div className="flex items-center gap-2">
+                  <SentimentBadge score={stock.avg_sentiment} />
+                  <span
+                    className={`text-[10px] tabular-nums ${stock.confidence === "low" ? "text-amber-500" : "text-muted-foreground"}`}
+                    title={`${stock.mention_count} mentions across ${stock.unique_sources} sources — ${stock.confidence ?? "unknown"} confidence`}
+                  >
+                    n={stock.mention_count}
+                  </span>
+                </div>
               </td>
               {!compact && (
                 <>

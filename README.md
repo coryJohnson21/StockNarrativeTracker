@@ -137,12 +137,14 @@ Scores are computed as a weighted combination:
 
 | Factor | Weight | Description |
 |--------|--------|-------------|
-| Mention frequency | 30% | Normalized total mentions |
-| Growth rate | 30% | Recent 7d vs prior 30d trend |
-| Sentiment | 25% | Avg sentiment (-100 to +100) → normalized |
-| Cross-source diversity | 15% | Unique sources mentioning this entity |
+| Share of voice | 30% | Percentile rank of this entity's share of all mentions in the last 30 days — relative attention that doesn't inflate just because more sources were ingested that week |
+| Growth | 30% | Last 7 days vs. the *preceding* 23 days (non-overlapping baseline), as a log-ratio shrunk toward "no change" with pseudo-counts so a single mention can't register as a spike |
+| Sentiment | 25% | Mention-weighted average sentiment relative to the universe-wide average, shrunk toward neutral for small samples |
+| Cross-source diversity | 15% | Unique sources mentioning this entity (saturates at 5) |
 
-Scores refresh automatically after each source is processed.
+Self-mentions (a company discussed in its own filing) are down-weighted to 0.3 in every component. Each result also carries a `confidence` of `low` / `medium` / `high` derived from mention count and source diversity — treat `low` sentiment readings as anecdotes, not signals.
+
+Scores refresh automatically after each source is processed, or on demand via `POST /api/ingest/refresh-momentum`.
 
 ## AI Pipeline
 

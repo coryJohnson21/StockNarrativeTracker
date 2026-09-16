@@ -36,10 +36,13 @@ export interface StockTrending {
   is_public?: boolean;
   label?: string;
   previous_label?: string;
+  confidence?: Confidence;
   current_price?: number;
   market_cap?: number;
   computed_at: string;
 }
+
+export type Confidence = "low" | "medium" | "high";
 
 export interface StockSearchResult {
   ticker: string;
@@ -58,6 +61,7 @@ export interface ThemeTrending {
   mention_growth_rate: number;
   avg_sentiment: number;
   unique_sources: number;
+  confidence?: Confidence;
   ai_summary?: string;
   label?: string;
   previous_label?: string;

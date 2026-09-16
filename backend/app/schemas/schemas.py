@@ -1,4 +1,4 @@
-from pydantic import BaseModel, HttpUrl, field_validator
+from pydantic import BaseModel, HttpUrl, computed_field, field_validator
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
@@ -73,6 +73,13 @@ class StockMomentumResponse(BaseModel):
     market_cap: Optional[float] = None
     computed_at: datetime
 
+    @computed_field
+    @property
+    def confidence(self) -> str:
+        from app.services.momentum import confidence_label
+
+        return confidence_label(self.mention_count, self.unique_sources)
+
     class Config:
         from_attributes = True
 
@@ -125,6 +132,13 @@ class ThemeMomentumResponse(BaseModel):
     label: Optional[str] = None
     previous_label: Optional[str] = None
     computed_at: datetime
+
+    @computed_field
+    @property
+    def confidence(self) -> str:
+        from app.services.momentum import confidence_label
+
+        return confidence_label(self.mention_count, self.unique_sources)
 
     class Config:
         from_attributes = True

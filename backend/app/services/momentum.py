@@ -1,4 +1,6 @@
 import asyncio
+import math
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +49,16 @@ SELF_MENTION_WEIGHT = 0.3
 
 LABEL_ORDER = ("positive", "building", "mixed", "fading", "negative")
 
+# Growth compares the last 7 days against the *preceding* 23 days (days 8-30), so the
+# baseline never contains the period being measured.
+RECENT_WINDOW_DAYS = 7
+PRIOR_WINDOW_DAYS = 23
+
+# Pseudo-counts pull small samples toward "nothing happened" so a single Reddit post
+# can't register as a maxed-out growth spike or a decisive sentiment reading.
+GROWTH_PSEUDO_COUNT = 2.0
+SENTIMENT_PSEUDO_COUNT = 3.0
+
 
 def sentiment_to_label(avg_sentiment: float) -> str:
     if avg_sentiment >= 50:
@@ -60,148 +72,214 @@ def sentiment_to_label(avg_sentiment: float) -> str:
     return "negative"
 
 
-def _mention_weight_expr(mention_model):
-    return case((mention_model.is_self_mention.is_(True), SELF_MENTION_WEIGHT), else_=1.0)
+def confidence_label(total_mentions: int, unique_sources: int) -> str:
+    """How much to trust the sentiment/score given the sample behind it."""
+    if total_mentions < 3 or unique_sources < 2:
+        return "low"
+    if total_mentions >= 10 and unique_sources >= 3:
+        return "high"
+    return "medium"
+
+
+def growth_component(recent_7d: float, prior_23d: float, pseudo: float = GROWTH_PSEUDO_COUNT) -> float:
+    """0-1 growth signal from a shrunk log-ratio of recent vs. expected weekly mentions.
+    Flat activity -> 0.5; 4x the expected rate saturates at 1.0; a quarter of it floors at 0."""
+    expected_7d = prior_23d * RECENT_WINDOW_DAYS / PRIOR_WINDOW_DAYS
+    ratio = (recent_7d + pseudo) / (expected_7d + pseudo)
+    return min(max(0.5 + math.log2(ratio) / 2, 0.0), 1.0)
+
+
+def shrunk_sentiment(
+    avg_sentiment: float, n: float, market_avg_sentiment: float = 0.0, pseudo: float = SENTIMENT_PSEUDO_COUNT
+) -> float:
+    """Sentiment relative to the whole universe's average, pulled toward zero when the
+    sample is small. +40 when everything is +40 is noise, and +90 from one mention is
+    a guess."""
+    if n <= 0:
+        return 0.0
+    return (avg_sentiment - market_avg_sentiment) * n / (n + pseudo)
+
+
+def share_of_voice_percentile(share: float, all_shares: list[float]) -> float:
+    """Mid-rank percentile (0-1) of one entity's share of all mentions. Relative
+    attention that doesn't move when we simply ingest more sources in a given week."""
+    if not all_shares:
+        return 0.0
+    below = sum(1 for s in all_shares if s < share)
+    ties = sum(1 for s in all_shares if s == share)
+    return (below + 0.5 * ties) / len(all_shares)
 
 
 def _compute_score(
-    total_mentions: int,
-    recent_7d: int,
-    older_30d: int,
+    freq_percentile: float,
+    recent_7d: float,
+    prior_23d: float,
     avg_sentiment: float,
+    total_mentions: float,
     unique_sources: int,
-    max_total_mentions: int,
+    market_avg_sentiment: float = 0.0,
 ) -> float:
     """
     Weighted momentum score (0–100).
-    - 30% mention frequency (normalized)
-    - 30% growth rate (recent vs older)
-    - 25% sentiment
+    - 30% share-of-voice percentile
+    - 30% growth (recent 7d vs. prior 23d, shrunk)
+    - 25% sentiment (market-relative, shrunk)
     - 15% cross-source diversity
     """
-    freq = min(total_mentions / max(max_total_mentions, 1), 1.0)
-
-    if older_30d == 0:
-        growth = 1.0 if recent_7d > 0 else 0.5
-    else:
-        raw_growth = (recent_7d - older_30d / 4) / (older_30d / 4)
-        growth = min(max((raw_growth + 1) / 2, 0.0), 1.0)
-
-    sentiment_norm = (avg_sentiment + 100) / 200.0
-
+    freq = min(max(freq_percentile, 0.0), 1.0)
+    growth = growth_component(recent_7d, prior_23d)
+    sentiment_norm = (shrunk_sentiment(avg_sentiment, total_mentions, market_avg_sentiment) + 100) / 200.0
     cross = min(unique_sources / 5.0, 1.0)
 
     score = (0.30 * freq + 0.30 * growth + 0.25 * sentiment_norm + 0.15 * cross) * 100
     return round(min(max(score, 0), 100), 1)
 
 
-async def refresh_stock_momentum(db: AsyncSession) -> None:
-    """Recompute momentum for all stocks."""
-    now = datetime.utcnow()
-    cutoff_7d = now - timedelta(days=7)
-    cutoff_30d = now - timedelta(days=30)
+def _mention_weight_expr(mention_model):
+    if hasattr(mention_model, "is_self_mention"):
+        return case((mention_model.is_self_mention.is_(True), SELF_MENTION_WEIGHT), else_=1.0)
+    # Themes have no "self-mention" concept (no single company files a theme).
+    return 1.0
 
-    stocks_result = await db.execute(select(Stock))
-    stocks = stocks_result.scalars().all()
 
-    weight = _mention_weight_expr(StockMention)
+@dataclass
+class MentionStats:
+    total: int = 0
+    recent_7d: int = 0
+    recent_30d: int = 0
+    prior_23d: int = 0
+    avg_sentiment: float = 0.0
+    unique_sources: int = 0
+    w_total: float = 0.0
+    w_recent_7d: float = 0.0
+    w_recent_30d: float = 0.0
+    w_prior_23d: float = 0.0
+    w_sentiment_sum: float = 0.0
 
-    # Max weighted mentions for normalization (self-mention-discounted, same basis the
-    # score itself is computed on).
-    max_q = await db.execute(
-        select(func.sum(weight)).group_by(StockMention.stock_id)
+    @property
+    def w_avg_sentiment(self) -> float:
+        return self.w_sentiment_sum / self.w_total if self.w_total else 0.0
+
+    @property
+    def growth_rate(self) -> float:
+        expected_7d = self.prior_23d * RECENT_WINDOW_DAYS / PRIOR_WINDOW_DAYS
+        if expected_7d > 0:
+            return (self.recent_7d - expected_7d) / expected_7d
+        return 1.0 if self.recent_7d > 0 else 0.0
+
+
+def _stats_columns(mention_model, now: datetime) -> list:
+    cutoff_7d = now - timedelta(days=RECENT_WINDOW_DAYS)
+    cutoff_30d = now - timedelta(days=RECENT_WINDOW_DAYS + PRIOR_WINDOW_DAYS)
+    weight = _mention_weight_expr(mention_model)
+    in_7d = mention_model.mentioned_at >= cutoff_7d
+    in_30d = mention_model.mentioned_at >= cutoff_30d
+    in_prior = and_(mention_model.mentioned_at >= cutoff_30d, mention_model.mentioned_at < cutoff_7d)
+    return [
+        func.count(mention_model.id).label("total"),
+        func.sum(case((in_7d, 1), else_=0)).label("recent_7d"),
+        func.sum(case((in_30d, 1), else_=0)).label("recent_30d"),
+        func.sum(case((in_prior, 1), else_=0)).label("prior_23d"),
+        func.avg(mention_model.sentiment_score).label("avg_sentiment"),
+        func.count(distinct(mention_model.source_id)).label("unique_sources"),
+        func.sum(weight).label("w_total"),
+        func.sum(case((in_7d, weight), else_=0)).label("w_recent_7d"),
+        func.sum(case((in_30d, weight), else_=0)).label("w_recent_30d"),
+        func.sum(case((in_prior, weight), else_=0)).label("w_prior_23d"),
+        func.sum(mention_model.sentiment_score * weight).label("w_sentiment_sum"),
+    ]
+
+
+def _stats_from_row(row) -> MentionStats:
+    return MentionStats(
+        total=row.total or 0,
+        recent_7d=row.recent_7d or 0,
+        recent_30d=row.recent_30d or 0,
+        prior_23d=row.prior_23d or 0,
+        avg_sentiment=float(row.avg_sentiment or 0.0),
+        unique_sources=row.unique_sources or 0,
+        w_total=float(row.w_total or 0.0),
+        w_recent_7d=float(row.w_recent_7d or 0.0),
+        w_recent_30d=float(row.w_recent_30d or 0.0),
+        w_prior_23d=float(row.w_prior_23d or 0.0),
+        w_sentiment_sum=float(row.w_sentiment_sum or 0.0),
     )
-    max_mentions = max((row[0] for row in max_q), default=1) or 1
 
-    for stock in stocks:
-        total_q = await db.execute(
-            select(func.count(StockMention.id)).where(StockMention.stock_id == stock.id)
+
+class _Universe:
+    """Cross-entity context a single score depends on: everyone's 30-day share of
+    voice and the mention-weighted average sentiment across the whole set."""
+
+    def __init__(self, stats: list[MentionStats]):
+        universe_30d = sum(s.w_recent_30d for s in stats)
+        self.shares = [s.w_recent_30d / universe_30d if universe_30d else 0.0 for s in stats]
+        self._universe_30d = universe_30d
+        total_w = sum(s.w_total for s in stats)
+        self.market_avg_sentiment = sum(s.w_sentiment_sum for s in stats) / total_w if total_w else 0.0
+
+    def score(self, s: MentionStats) -> float:
+        share = s.w_recent_30d / self._universe_30d if self._universe_30d else 0.0
+        return _compute_score(
+            freq_percentile=share_of_voice_percentile(share, self.shares) if s.w_recent_30d else 0.0,
+            recent_7d=s.w_recent_7d,
+            prior_23d=s.w_prior_23d,
+            avg_sentiment=s.w_avg_sentiment,
+            total_mentions=s.w_total,
+            unique_sources=s.unique_sources,
+            market_avg_sentiment=self.market_avg_sentiment,
         )
-        total = total_q.scalar() or 0
 
-        recent_q = await db.execute(
-            select(func.count(StockMention.id)).where(
-                and_(StockMention.stock_id == stock.id, StockMention.mentioned_at >= cutoff_7d)
-            )
+
+async def _refresh_momentum(
+    db: AsyncSession, parent_model, mention_model, mention_fk_col, momentum_model, momentum_fk_name: str
+) -> None:
+    now = datetime.utcnow()
+
+    parents = (await db.execute(select(parent_model))).scalars().all()
+
+    rows = (
+        await db.execute(
+            select(mention_fk_col.label("parent_id"), *_stats_columns(mention_model, now)).group_by(mention_fk_col)
         )
-        recent = recent_q.scalar() or 0
+    ).all()
+    stats_by_parent = {row.parent_id: _stats_from_row(row) for row in rows}
+    universe = _Universe(list(stats_by_parent.values()))
 
-        older_q = await db.execute(
-            select(func.count(StockMention.id)).where(
-                and_(StockMention.stock_id == stock.id, StockMention.mentioned_at >= cutoff_30d)
-            )
-        )
-        older = older_q.scalar() or 0
+    existing = (await db.execute(select(momentum_model))).scalars().all()
+    momentum_by_parent = {getattr(m, momentum_fk_name): m for m in existing}
 
-        sentiment_q = await db.execute(
-            select(func.avg(StockMention.sentiment_score)).where(
-                StockMention.stock_id == stock.id
-            )
-        )
-        avg_sent = sentiment_q.scalar() or 0.0
+    for parent in parents:
+        s = stats_by_parent.get(parent.id, MentionStats())
+        new_label = sentiment_to_label(s.avg_sentiment)
 
-        sources_q = await db.execute(
-            select(func.count(distinct(StockMention.source_id))).where(
-                StockMention.stock_id == stock.id
-            )
-        )
-        unique_src = sources_q.scalar() or 0
-
-        # Weighted versions of the same stats, feeding the score only -- raw counts
-        # above are what gets stored/displayed so users see real totals.
-        w_total_q = await db.execute(
-            select(func.sum(weight)).where(StockMention.stock_id == stock.id)
-        )
-        w_total = w_total_q.scalar() or 0.0
-
-        w_recent_q = await db.execute(
-            select(func.sum(weight)).where(
-                and_(StockMention.stock_id == stock.id, StockMention.mentioned_at >= cutoff_7d)
-            )
-        )
-        w_recent = w_recent_q.scalar() or 0.0
-
-        w_older_q = await db.execute(
-            select(func.sum(weight)).where(
-                and_(StockMention.stock_id == stock.id, StockMention.mentioned_at >= cutoff_30d)
-            )
-        )
-        w_older = w_older_q.scalar() or 0.0
-
-        w_sent_q = await db.execute(
-            select(func.sum(StockMention.sentiment_score * weight)).where(
-                StockMention.stock_id == stock.id
-            )
-        )
-        w_sent_sum = w_sent_q.scalar() or 0.0
-        w_avg_sent = (w_sent_sum / w_total) if w_total else 0.0
-
-        growth_rate = ((recent - (older / 4)) / max(older / 4, 1)) if older > 0 else (1.0 if recent > 0 else 0.0)
-        score = _compute_score(w_total, w_recent, w_older, w_avg_sent, unique_src, max_mentions)
-        new_label = sentiment_to_label(avg_sent)
-
-        existing = await db.execute(
-            select(StockMomentum).where(StockMomentum.stock_id == stock.id)
-        )
-        momentum = existing.scalar_one_or_none()
-
+        momentum = momentum_by_parent.get(parent.id)
         if momentum is None:
-            momentum = StockMomentum(stock_id=stock.id)
+            momentum = momentum_model(**{momentum_fk_name: parent.id})
             db.add(momentum)
 
         if momentum.label and momentum.label != new_label:
             momentum.previous_label = momentum.label
         momentum.label = new_label
-        momentum.score = score
-        momentum.mention_count = total
-        momentum.mention_count_7d = recent
-        momentum.mention_count_30d = older
-        momentum.mention_growth_rate = round(growth_rate, 3)
-        momentum.avg_sentiment = round(avg_sent, 1)
-        momentum.unique_sources = unique_src
+        momentum.score = universe.score(s)
+        momentum.mention_count = s.total
+        momentum.mention_count_7d = s.recent_7d
+        momentum.mention_count_30d = s.recent_30d
+        momentum.mention_growth_rate = round(s.growth_rate, 3)
+        momentum.avg_sentiment = round(s.avg_sentiment, 1)
+        momentum.unique_sources = s.unique_sources
         momentum.computed_at = now
 
     await db.commit()
+
+
+async def refresh_stock_momentum(db: AsyncSession) -> None:
+    """Recompute momentum for all stocks."""
+    await _refresh_momentum(db, Stock, StockMention, StockMention.stock_id, StockMomentum, "stock_id")
+
+
+async def refresh_theme_momentum(db: AsyncSession) -> None:
+    """Recompute momentum for all themes."""
+    await _refresh_momentum(db, Theme, ThemeMention, ThemeMention.theme_id, ThemeMomentum, "theme_id")
 
 
 async def _trending_by_type_filter(
@@ -219,26 +297,9 @@ async def _trending_by_type_filter(
     """Live-aggregate momentum for an arbitrary source-type filter without touching
     the precomputed momentum tables, which stay aggregate-across-everything."""
     now = datetime.utcnow()
-    cutoff_7d = now - timedelta(days=7)
-    cutoff_30d = now - timedelta(days=30)
-
-    # Themes have no "self-mention" concept (no single company files a theme), only
-    # StockMention carries is_self_mention -- weight is 1.0 for everything else.
-    weight = _mention_weight_expr(mention_model) if hasattr(mention_model, "is_self_mention") else 1.0
 
     q = (
-        select(
-            parent_model,
-            func.count(mention_model.id).label("total"),
-            func.sum(case((mention_model.mentioned_at >= cutoff_7d, 1), else_=0)).label("recent_7d"),
-            func.sum(case((mention_model.mentioned_at >= cutoff_30d, 1), else_=0)).label("recent_30d"),
-            func.avg(mention_model.sentiment_score).label("avg_sentiment"),
-            func.count(distinct(mention_model.source_id)).label("unique_sources"),
-            func.sum(weight).label("w_total"),
-            func.sum(case((mention_model.mentioned_at >= cutoff_7d, weight), else_=0)).label("w_recent_7d"),
-            func.sum(case((mention_model.mentioned_at >= cutoff_30d, weight), else_=0)).label("w_recent_30d"),
-            func.sum(mention_model.sentiment_score * weight).label("w_sentiment_sum"),
-        )
+        select(parent_model, *_stats_columns(mention_model, now))
         .join(mention_model, mention_fk_col == parent_id_col)
         .join(Source, mention_model.source_id == Source.id)
         .where(type_filter)
@@ -248,38 +309,24 @@ async def _trending_by_type_filter(
         q = q.where(extra_filter)
 
     rows = (await db.execute(q)).all()
-    max_w_total = max((row.w_total or 0 for row in rows), default=1) or 1
+    stats = [_stats_from_row(row) for row in rows]
+    universe = _Universe(stats)
 
     results = []
-    for row in rows:
-        parent = row[0]
-        total = row.total or 0
-        recent = row.recent_7d or 0
-        older = row.recent_30d or 0
-        avg_sent = row.avg_sentiment or 0.0
-        unique_src = row.unique_sources or 0
-
-        w_total = row.w_total or 0.0
-        w_recent = row.w_recent_7d or 0.0
-        w_older = row.w_recent_30d or 0.0
-        w_avg_sent = (row.w_sentiment_sum / w_total) if w_total else 0.0
-
-        growth_rate = ((recent - (older / 4)) / max(older / 4, 1)) if older > 0 else (1.0 if recent > 0 else 0.0)
-        score = _compute_score(w_total, w_recent, w_older, w_avg_sent, unique_src, max_w_total)
-
+    for row, s in zip(rows, stats):
+        score = universe.score(s)
         if score < min_score:
             continue
-
         results.append(
             {
-                "parent": parent,
+                "parent": row[0],
                 "score": score,
-                "mention_count": total,
-                "mention_count_7d": recent,
-                "mention_count_30d": older,
-                "mention_growth_rate": round(growth_rate, 3),
-                "avg_sentiment": round(avg_sent, 1),
-                "unique_sources": unique_src,
+                "mention_count": s.total,
+                "mention_count_7d": s.recent_7d,
+                "mention_count_30d": s.recent_30d,
+                "mention_growth_rate": round(s.growth_rate, 3),
+                "avg_sentiment": round(s.avg_sentiment, 1),
+                "unique_sources": s.unique_sources,
                 "ai_summary": None,
                 "computed_at": now,
             }
@@ -525,83 +572,6 @@ async def get_top_stocks_for_theme(db: AsyncSession, theme_id, limit: int = 8) -
         {"ticker": row.ticker, "company_name": row.company_name, "co_mentions": row.co_mentions}
         for row in rows
     ]
-
-
-async def refresh_theme_momentum(db: AsyncSession) -> None:
-    """Recompute momentum for all themes."""
-    now = datetime.utcnow()
-    cutoff_7d = now - timedelta(days=7)
-    cutoff_30d = now - timedelta(days=30)
-
-    themes_result = await db.execute(select(Theme))
-    themes = themes_result.scalars().all()
-
-    max_q = await db.execute(
-        select(func.count(ThemeMention.id)).group_by(ThemeMention.theme_id)
-    )
-    max_mentions = max((row[0] for row in max_q), default=1)
-
-    for theme in themes:
-        total_q = await db.execute(
-            select(func.count(ThemeMention.id)).where(ThemeMention.theme_id == theme.id)
-        )
-        total = total_q.scalar() or 0
-
-        recent_q = await db.execute(
-            select(func.count(ThemeMention.id)).where(
-                and_(ThemeMention.theme_id == theme.id, ThemeMention.mentioned_at >= cutoff_7d)
-            )
-        )
-        recent = recent_q.scalar() or 0
-
-        older_q = await db.execute(
-            select(func.count(ThemeMention.id)).where(
-                and_(ThemeMention.theme_id == theme.id, ThemeMention.mentioned_at >= cutoff_30d)
-            )
-        )
-        older = older_q.scalar() or 0
-
-        sentiment_q = await db.execute(
-            select(func.avg(ThemeMention.sentiment_score)).where(
-                ThemeMention.theme_id == theme.id
-            )
-        )
-        avg_sent = sentiment_q.scalar() or 0.0
-
-        sources_q = await db.execute(
-            select(func.count(distinct(ThemeMention.source_id))).where(
-                ThemeMention.theme_id == theme.id
-            )
-        )
-        unique_src = sources_q.scalar() or 0
-
-        growth_rate = ((recent - (older / 4)) / max(older / 4, 1)) if older > 0 else (1.0 if recent > 0 else 0.0)
-        score = _compute_score(total, recent, older, avg_sent, unique_src, max_mentions)
-        new_label = sentiment_to_label(avg_sent)
-
-        existing = await db.execute(
-            select(ThemeMomentum).where(ThemeMomentum.theme_id == theme.id)
-        )
-        momentum = existing.scalar_one_or_none()
-
-        if momentum is None:
-            momentum = ThemeMomentum(theme_id=theme.id)
-            db.add(momentum)
-
-        if momentum.label and momentum.label != new_label:
-            momentum.previous_label = momentum.label
-        momentum.label = new_label
-
-        momentum.score = score
-        momentum.mention_count = total
-        momentum.mention_count_7d = recent
-        momentum.mention_count_30d = older
-        momentum.mention_growth_rate = round(growth_rate, 3)
-        momentum.avg_sentiment = round(avg_sent, 1)
-        momentum.unique_sources = unique_src
-        momentum.computed_at = now
-
-    await db.commit()
 
 
 async def refresh_market_data_cache(db: AsyncSession) -> None:
