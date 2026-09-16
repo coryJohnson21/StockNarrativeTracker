@@ -27,6 +27,7 @@ from app.services.momentum import (
 from app.services import market_data
 from app.services.calls import get_stock_calls, get_stock_call_summary
 from app.services.narratives import get_stock_narratives
+from app.services.signals import get_stock_signals
 from app.services.extraction import condense_company_description, generate_narrative_summary
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
@@ -343,6 +344,7 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
     self_vs_external_breakdown = await get_stock_self_vs_external_breakdown(db, stock.id)
     call_summary = await get_stock_call_summary(db, stock.id)
     narratives = await get_stock_narratives(db, stock.id)
+    signals = await get_stock_signals(db, stock, mention_breakdown, momentum)
 
     total_mentions = mention_breakdown["filing"]["mention_count"] + mention_breakdown["media"]["mention_count"]
 
@@ -393,4 +395,5 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
         "narrative_summary": narrative_summary,
         "calls": call_summary,
         "narratives": narratives,
+        "signals": signals,
     }

@@ -162,6 +162,12 @@ class PriceSeries:
     def __len__(self) -> int:
         return len(self.dates)
 
+    def trailing_return(self, trading_days: int) -> Optional[float]:
+        """Return over the last `trading_days` closes, None if the series is too short."""
+        if len(self.closes) <= trading_days or self.closes[-1 - trading_days] <= 0:
+            return None
+        return self.closes[-1] / self.closes[-1 - trading_days] - 1.0
+
     def forward_return(self, start: date, horizon_trading_days: int) -> Optional[float]:
         """Return from the first close on/after `start` to the close `horizon` trading
         days later. None if there's no close within a few days of `start` (a gap in

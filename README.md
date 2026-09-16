@@ -167,6 +167,16 @@ A positive, significant IC on sentiment means narrative leads price. A negative 
 
 Ten sources repeating one headline is one signal, not ten. Each mention's context is embedded (`text-embedding-3-small`, stored in pgvector on `stock_mentions.embedding`) and given a **novelty** score: one minus its cosine similarity to the closest thing any *other* source said about the same stock in the preceding 30 days. Echoes land near 0, new angles near 1, and the first mention in a window is unmeasured (`NULL` at ingest, `1.0` after backfill). The trending table tags each stock's week as **new** or **echo** from the 7-day mean (`novelty_7d`), and the stock page clusters the last 30 days of mentions into **distinct narratives** with a single greedy pass at cosine ≥ 0.85, reporting how much of the coverage is repetition (`echo_ratio`). Run `POST /api/research/backfill-embeddings` once to cover mentions ingested before this existed — cents, not dollars.
 
+### Where do the sources disagree?
+
+The stock page surfaces three divergences, each a pure function over already-aggregated numbers (`services/signals.py`) so the thresholds are tested:
+
+- **Management vs. market** — the latest filing's guidance direction against media tone (raised guidance with negative coverage, or a cut with bullish coverage, is an alert), or a ≥30-point sentiment gap between filings and outside coverage.
+- **Narrative vs. price** — a ≥20-point week-over-prior sentiment shift against a ≥5% move in the opposite direction over the last 20 trading days. Early recognition or a trap; the backtest's sentiment IC says which has been more common.
+- **Crowding** — top-quintile attention this week, sentiment beyond ±50, and novelty ≤ 0.3: everyone saying the same thing about a stale story. The attention literature finds this is where continuation gives way to reversal.
+
+Every detector requires a minimum sample and returns nothing rather than guessing when an input is missing.
+
 ### Who is actually right?
 
 Every explicit buy/sell/avoid call is judged against the stock's SPY-excess return over the next 20 trading days (hold and watch take no side and aren't scored). Calls are grouped by channel — the podcast, YouTube channel, or subreddit, falling back to source type — and each channel gets a **reliability weight** of `0.5 + shrunk hit rate`, where the hit rate is pulled toward a coin flip by ten pseudo-calls. A channel with no record is exactly 1.0; one that's right 70% of the time over a real sample is about 1.2; 3-for-3 is about 1.1, because three lucky calls aren't skill. That weight multiplies the channel's mentions in the live momentum score, so a bullish take from a source with a good record counts for more than the same words from one that's usually wrong. It is deliberately *not* used in the point-in-time snapshots — a track record is built from outcomes that happen after each snapshot day, and using it there would be look-ahead bias.

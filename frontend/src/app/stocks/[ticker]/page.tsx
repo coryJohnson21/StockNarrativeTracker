@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, AlertCircle, Landmark, Newspaper, ExternalLink, Building2, Globe } from "lucide-react";
+import { ArrowLeft, Loader2, AlertCircle, Landmark, Newspaper, ExternalLink, Building2, Globe, AlertTriangle, Eye } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SentimentBadge } from "@/components/SentimentBadge";
@@ -132,6 +132,27 @@ export default function StockDetailPage() {
               <StockPriceChart ticker={profile.ticker} currency={profile.price.currency} />
             </CardContent>
           </Card>
+
+          {profile.signals && profile.signals.signals.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {profile.signals.signals.map((s) => {
+                const alert = s.severity === "alert";
+                const Icon = alert ? AlertTriangle : Eye;
+                return (
+                  <div
+                    key={s.key}
+                    className={`rounded-lg border p-4 space-y-1.5 ${alert ? "border-amber-500/40 bg-amber-500/5" : "border-border bg-card"}`}
+                  >
+                    <div className={`flex items-center gap-2 text-sm font-semibold ${alert ? "text-amber-400" : "text-foreground"}`}>
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {s.title}
+                    </div>
+                    <p className="text-xs leading-relaxed text-muted-foreground">{s.detail}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {profile.description && (
             <Card>

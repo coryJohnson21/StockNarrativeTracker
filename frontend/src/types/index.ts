@@ -124,6 +124,29 @@ export interface StockProfile {
   narrative_summary?: string;
   calls: StockCallSummary;
   narratives: StockNarratives;
+  signals: StockSignals;
+}
+
+export interface StockSignal {
+  key: "management_vs_media" | "narrative_vs_price" | "crowding";
+  severity: "info" | "watch" | "alert";
+  title: string;
+  detail: string;
+  metrics: Record<string, number | string | null>;
+}
+
+export interface StockSignals {
+  signals: StockSignal[];
+  inputs: {
+    guidance_direction: string | null;
+    sentiment_7d: number | null;
+    mentions_7d: number;
+    sentiment_prior_23d: number | null;
+    mentions_prior_23d: number;
+    price_return_20d_pct: number | null;
+    attention_percentile: number | null;
+    novelty_7d: number | null;
+  };
 }
 
 export interface ResearchStatus {
