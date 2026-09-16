@@ -11,11 +11,12 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import select, update, func
+from sqlalchemy import select, update, delete, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Source, SourceReliability, Stock, StockCall
+from app.services.momentum import FILING_SOURCE_TYPES
 from app.services.research import BENCHMARK_TICKER, load_price_series
 
 # Which way each call type bets. Hold and watch take no side, so they can't be
@@ -66,7 +67,9 @@ def reliability_weight(hits: int, scored: int) -> float:
 async def compute_source_reliability(db: AsyncSession, horizon: int = DEFAULT_HORIZON) -> list[dict]:
     rows = (
         await db.execute(
-            select(StockCall, Source.type, Source.channel).join(Source, StockCall.source_id == Source.id)
+            select(StockCall, Source.type, Source.channel)
+            .join(Source, StockCall.source_id == Source.id)
+            .where(Source.type.notin_(FILING_SOURCE_TYPES))
         )
     ).all()
     benchmark = (await db.execute(select(Stock).where(Stock.ticker == BENCHMARK_TICKER))).scalar_one_or_none()
@@ -130,8 +133,11 @@ async def compute_source_reliability(db: AsyncSession, horizon: int = DEFAULT_HO
 
 
 async def _persist(db: AsyncSession, results: list[dict]) -> None:
-    # Every source starts neutral; channels with a record then override.
+    # Every source starts neutral; channels with a record then override. Channels
+    # that no longer have any calls (e.g. after a cleanup) drop out of the table.
     await db.execute(update(Source).values(reliability_weight=1.0))
+    keep = [r["channel_key"] for r in results]
+    await db.execute(delete(SourceReliability).where(SourceReliability.channel_key.notin_(keep)) if keep else delete(SourceReliability))
     if results:
         stmt = pg_insert(SourceReliability).values([{"id": uuid.uuid4(), **r} for r in results])
         cols = [c for c in results[0] if c != "channel_key"]

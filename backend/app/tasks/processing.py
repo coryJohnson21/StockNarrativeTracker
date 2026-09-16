@@ -315,8 +315,12 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
     except Exception:
         logger.exception("Mention embedding failed for source %s; continuing without novelty", source.id)
 
-    # Step 4b: Store explicit recommendations
-    await _store_calls(db, source, extraction.get("calls", []), mentioned_at)
+    # Step 4b: Store explicit recommendations -- from media only. A company's own
+    # filing isn't a recommendation, and GPT will occasionally read "we expect
+    # growth" in a 10-Q as a buy call, which would then score the company as a
+    # "channel" in the reliability table.
+    if source.type not in sec_edgar.TRACKED_FORMS:
+        await _store_calls(db, source, extraction.get("calls", []), mentioned_at)
 
     # Step 5: Store theme mentions
     for theme_data in extraction["themes"]:
