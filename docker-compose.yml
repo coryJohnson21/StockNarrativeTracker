@@ -26,6 +26,11 @@ services:
       CORS_ORIGINS: '["http://localhost:3000"]'
       ENABLE_AUTO_SEC_SCAN: "true"
       ENABLE_AUTO_INGEST: "true"
+      # Reddit "script" app credentials (reddit.com/prefs/apps). Without them
+      # Reddit ingestion falls back to the public feed, which Reddit blocks from
+      # most non-residential IPs.
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
     depends_on:
       db:
         condition: service_healthy
