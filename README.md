@@ -128,6 +128,10 @@ npm run dev
 | GET | `/api/sources` | List all ingested sources |
 | DELETE | `/api/sources/{id}` | Delete a source and its data |
 | GET | `/api/dashboard/stats` | Summary stats for dashboard |
+| GET | `/api/stocks/{ticker}/calls` | Explicit buy/sell/hold calls made about a stock |
+| POST | `/api/research/refresh` | Pull daily prices (+ SPY) and rebuild point-in-time momentum snapshots |
+| GET | `/api/research/backtest` | Forward returns by score quintile and rank IC per factor (`horizon`, `buckets`, `min_mentions_7d`) |
+| GET | `/api/research/status` | Snapshot and price coverage |
 
 Full interactive docs at: `http://localhost:8000/docs`
 
@@ -145,6 +149,16 @@ Scores are computed as a weighted combination:
 Self-mentions (a company discussed in its own filing) are down-weighted to 0.3 in every component. Each result also carries a `confidence` of `low` / `medium` / `high` derived from mention count and source diversity — treat `low` sentiment readings as anecdotes, not signals.
 
 Scores refresh automatically after each source is processed, or on demand via `POST /api/ingest/refresh-momentum`.
+
+## Does the score predict anything?
+
+The Research page (`/research`) is the honest answer. `POST /api/research/refresh` pulls a year of daily closes for every tracked stock plus SPY, then rebuilds a **point-in-time** momentum snapshot for every stock-day since the first mention — each day's score uses only mentions published on or before that day. `GET /api/research/backtest?horizon=20` joins those snapshots to forward returns and reports:
+
+- mean and median SPY-excess return by score quintile, with hit rate and the top-minus-bottom spread;
+- the rank correlation (information coefficient) between forward return and the score and each of its components (sentiment, 7-day mentions, share of voice);
+- the mean of per-day ICs and its t-stat, so a single lucky week can't carry a factor.
+
+A positive, significant IC on sentiment means narrative leads price. A negative one means attention peaks late and the signal is contrarian. Treat anything under a few hundred observations across 20+ days as a hypothesis. With `ENABLE_AUTO_INGEST=true` the refresh runs daily.
 
 ## AI Pipeline
 

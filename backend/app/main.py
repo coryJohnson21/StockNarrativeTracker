@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine, Base, AsyncSessionLocal
-from app.routers import ingest, stocks, themes, sources, sec, watchlist, podcasts, reddit
+from app.routers import ingest, stocks, themes, sources, sec, watchlist, podcasts, reddit, research
 from app.tasks.sec_scan import scan_all_sp500
 from app.tasks.podcast_poll import poll_all_feeds
 from app.tasks.reddit_poll import poll_all_subreddits
@@ -73,6 +73,18 @@ async def _periodic_market_data_refresh():
             logger.exception("Periodic market data refresh failed")
 
 
+async def _periodic_research_refresh():
+    from app.services.research import refresh_research
+    while True:
+        await asyncio.sleep(24 * 3600)
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await refresh_research(db)
+            logger.info(f"Research data refreshed: {result}")
+        except Exception:
+            logger.exception("Periodic research refresh failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create tables on startup (for dev; use alembic in prod)
@@ -94,8 +106,9 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(_periodic_podcast_poll()),
             asyncio.create_task(_periodic_reddit_poll()),
             asyncio.create_task(_periodic_market_data_refresh()),
+            asyncio.create_task(_periodic_research_refresh()),
         ]
-        logger.info("Auto-ingest enabled: periodic podcast/Reddit polling + market data refresh started")
+        logger.info("Auto-ingest enabled: periodic podcast/Reddit polling + market data + daily research refresh started")
     else:
         logger.info("Auto-ingest disabled (ENABLE_AUTO_INGEST not set); use on-demand endpoints")
     yield
@@ -127,6 +140,7 @@ app.include_router(sec.router, prefix="/api")
 app.include_router(watchlist.router, prefix="/api")
 app.include_router(podcasts.router, prefix="/api")
 app.include_router(reddit.router, prefix="/api")
+app.include_router(research.router, prefix="/api")
 
 
 @app.get("/api/health")

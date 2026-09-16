@@ -217,8 +217,11 @@ class _Universe:
         total_w = sum(s.w_total for s in stats)
         self.market_avg_sentiment = sum(s.w_sentiment_sum for s in stats) / total_w if total_w else 0.0
 
+    def share(self, s: MentionStats) -> float:
+        return s.w_recent_30d / self._universe_30d if self._universe_30d else 0.0
+
     def score(self, s: MentionStats) -> float:
-        share = s.w_recent_30d / self._universe_30d if self._universe_30d else 0.0
+        share = self.share(s)
         return _compute_score(
             freq_percentile=share_of_voice_percentile(share, self.shares) if s.w_recent_30d else 0.0,
             recent_7d=s.w_recent_7d,

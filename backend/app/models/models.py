@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Float, Text, DateTime, ForeignKey, UniqueConstraint, Boolean
+from sqlalchemy import Column, String, Integer, Float, Text, Date, DateTime, ForeignKey, UniqueConstraint, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
@@ -110,6 +110,36 @@ class StockCall(Base):
 
     source = relationship("Source")
     stock = relationship("Stock")
+
+
+class StockPrice(Base):
+    """Daily closing price, the ground truth every narrative signal is tested against."""
+    __tablename__ = "stock_prices"
+    __table_args__ = (UniqueConstraint("stock_id", "date", name="uq_stock_prices_stock_date"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    stock_id = Column(UUID(as_uuid=True), ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    close = Column(Float, nullable=False)
+
+
+class MomentumSnapshot(Base):
+    """What the momentum score *was* for a stock on a given day, rebuilt from mention
+    timestamps so the history is point-in-time (only mentions published on or before
+    that day count). Joined to stock_prices to measure forward returns."""
+    __tablename__ = "momentum_snapshots"
+    __table_args__ = (UniqueConstraint("stock_id", "date", name="uq_momentum_snapshots_stock_date"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    stock_id = Column(UUID(as_uuid=True), ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    score = Column(Float, nullable=False)
+    mention_count_7d = Column(Integer, nullable=False, default=0)
+    mention_count_30d = Column(Integer, nullable=False, default=0)
+    avg_sentiment = Column(Float, nullable=False, default=0.0)
+    unique_sources = Column(Integer, nullable=False, default=0)
+    share_of_voice = Column(Float, nullable=False, default=0.0)
+    label = Column(String(20))
 
 
 class ThemeMention(Base):

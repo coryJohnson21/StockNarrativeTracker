@@ -1,4 +1,4 @@
-import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed } from "@/types";
+import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed, ResearchStatus, BacktestResult } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -270,6 +270,25 @@ export async function pollRedditFeedNow(id: string): Promise<{ status: string; d
 }
 
 // --- Dashboard ---
+
+// --- Research ---
+
+export async function getResearchStatus(): Promise<ResearchStatus> {
+  return apiFetch("/api/research/status");
+}
+
+export async function refreshResearch(fullPrices = false): Promise<{ status: string; detail: string }> {
+  return apiFetch(`/api/research/refresh?full_prices=${fullPrices}`, { method: "POST" });
+}
+
+export async function getBacktest(params: { horizon: number; buckets?: number; min_mentions_7d?: number }): Promise<BacktestResult> {
+  const q = new URLSearchParams({
+    horizon: String(params.horizon),
+    buckets: String(params.buckets ?? 5),
+    min_mentions_7d: String(params.min_mentions_7d ?? 1),
+  });
+  return apiFetch(`/api/research/backtest?${q}`);
+}
 
 export async function getDashboardStats(): Promise<DashboardStats> {
   return apiFetch("/api/dashboard/stats");

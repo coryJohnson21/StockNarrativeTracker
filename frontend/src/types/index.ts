@@ -102,6 +102,52 @@ export interface StockProfile {
   calls: StockCallSummary;
 }
 
+export interface ResearchStatus {
+  snapshots: number;
+  snapshot_from: string | null;
+  snapshot_to: string | null;
+  price_rows: number;
+  price_stocks: number;
+  price_from: string | null;
+  price_to: string | null;
+  benchmark_available: boolean;
+  horizons: number[];
+}
+
+export interface BacktestBucket {
+  bucket: number;
+  n: number;
+  score_min: number;
+  score_max: number;
+  mean_return_pct: number;
+  mean_excess_pct: number | null;
+  median_excess_pct: number | null;
+  hit_rate: number | null;
+}
+
+export interface FactorIC {
+  factor: "score" | "avg_sentiment" | "mention_count_7d" | "share_of_voice";
+  ic: number | null;
+  n: number;
+  mean_daily_ic: number | null;
+  t_stat: number | null;
+  n_dates: number;
+}
+
+export interface BacktestResult {
+  horizon: number;
+  min_mentions_7d: number;
+  n_observations: number;
+  n_dates: number;
+  date_from: string | null;
+  date_to: string | null;
+  benchmark: string;
+  benchmark_available: boolean;
+  buckets: BacktestBucket[];
+  spread_excess_pct: number | null;
+  factor_ic: FactorIC[];
+}
+
 export type CallType = "buy" | "sell" | "hold" | "avoid" | "watch";
 
 export interface StockCall {
