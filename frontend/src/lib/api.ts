@@ -1,4 +1,4 @@
-import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed, ResearchStatus, BacktestResult, SourceReliability } from "@/types";
+import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, ThemeIndex, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed, ResearchStatus, BacktestResult, SourceReliability } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -167,6 +167,10 @@ export async function getTrendingThemes(params?: {
 
 export async function getThemeProfile(name: string): Promise<ThemeProfile> {
   return apiFetch(`/api/themes/${encodeURIComponent(name)}/profile`);
+}
+
+export async function getThemeIndex(name: string, days = 90): Promise<ThemeIndex> {
+  return apiFetch(`/api/themes/${encodeURIComponent(name)}/index?days=${days}`);
 }
 
 export async function getThemeMentions(

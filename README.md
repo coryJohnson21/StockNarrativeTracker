@@ -135,6 +135,7 @@ npm run dev
 | GET | `/api/research/reliability` | Per-channel track record on explicit calls and the resulting mention weight |
 | POST | `/api/research/reliability/recompute` | Re-score channels from stored calls and prices (`horizon`) |
 | POST | `/api/research/backfill-embeddings` | Embed past mention contexts and score novelty (one-time, oldest first) |
+| GET | `/api/themes/{name}/index` | Equal-weight basket index of a theme's co-mentioned stocks vs. weekly narrative, with lead/lag (`days`) |
 
 Full interactive docs at: `http://localhost:8000/docs`
 
@@ -166,6 +167,10 @@ A positive, significant IC on sentiment means narrative leads price. A negative 
 ### Is anyone saying anything new?
 
 Ten sources repeating one headline is one signal, not ten. Each mention's context is embedded (`text-embedding-3-small`, stored in pgvector on `stock_mentions.embedding`) and given a **novelty** score: one minus its cosine similarity to the closest thing any *other* source said about the same stock in the preceding 30 days. Echoes land near 0, new angles near 1, and the first mention in a window is unmeasured (`NULL` at ingest, `1.0` after backfill). The trending table tags each stock's week as **new** or **echo** from the 7-day mean (`novelty_7d`), and the stock page clusters the last 30 days of mentions into **distinct narratives** with a single greedy pass at cosine ≥ 0.85, reporting how much of the coverage is repetition (`echo_ratio`). Run `POST /api/research/backfill-embeddings` once to cover mentions ingested before this existed — cents, not dollars.
+
+### Did the theme narrative lead or chase the basket?
+
+Each theme page builds a daily-rebalanced **equal-weight index** (base 100) of the theme's most co-mentioned stocks from stored closes — a stock with a gap sits out that day rather than breaking the series — and lines it up week by week with the theme's mention volume and mention-weighted sentiment. Three rank correlations per factor answer the lead/lag question: this week's narrative against *next* week's basket return (narrative **leads**), the same week (**coincident**), or *last* week's (narrative **chases** price). A verdict needs six overlapping weeks and |ρ| ≥ 0.3, and is labeled as a hypothesis — weekly buckets over a quarter are a small sample.
 
 ### Where do the sources disagree?
 

@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { SentimentBadge } from "@/components/SentimentBadge";
 import { MomentumBar } from "@/components/MomentumBadge";
 import { ThemeImpactCard } from "@/components/ThemeImpactCard";
+import { ThemeIndexChart } from "@/components/ThemeIndexChart";
 import { getThemeProfile } from "@/lib/api";
 import type { ThemeProfile } from "@/types";
 
@@ -112,6 +113,8 @@ export default function ThemeDetailPage() {
           {profile.impact_analysis && (
             <ThemeImpactCard themeName={profile.name} analysis={profile.impact_analysis} />
           )}
+
+          {profile.top_stocks.length > 0 && <ThemeIndexChart themeName={profile.name} />}
 
           {profile.top_stocks.length > 0 && (
             <Card>

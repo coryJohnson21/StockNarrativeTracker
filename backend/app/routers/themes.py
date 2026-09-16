@@ -16,6 +16,7 @@ from app.services.momentum import (
     FILING_SOURCE_TYPES,
 )
 from app.services.extraction import generate_theme_description, generate_theme_impact_analysis
+from app.services.theme_index import get_theme_index
 
 router = APIRouter(prefix="/themes", tags=["themes"])
 
@@ -237,3 +238,18 @@ async def get_theme_profile(theme_name: str, db: AsyncSession = Depends(get_db))
         "top_stocks": top_stocks,
         "impact_analysis": impact_analysis,
     }
+
+
+@router.get("/{theme_name}/index")
+async def get_theme_index_endpoint(
+    theme_name: str,
+    days: int = Query(90, ge=30, le=730),
+    db: AsyncSession = Depends(get_db),
+):
+    """Equal-weight return index of the theme's most co-mentioned stocks (base 100),
+    joined week by week to the theme's mention volume and sentiment, with lead/lag
+    rank correlations so 'the narrative peaked' becomes checkable against the basket."""
+    theme = (await db.execute(select(Theme).where(Theme.name == theme_name))).scalar_one_or_none()
+    if theme is None:
+        raise HTTPException(status_code=404, detail=f"Theme '{theme_name}' not found")
+    return await get_theme_index(db, theme, days=days)

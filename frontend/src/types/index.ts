@@ -255,6 +255,38 @@ export interface ThemeProfile {
   impact_analysis?: ThemeImpactAnalysis;
 }
 
+export interface ThemeIndexPoint {
+  date: string;
+  value: number;
+  constituents: number;
+}
+
+export interface ThemeWeek {
+  week: string;
+  index_value: number | null;
+  index_return_pct: number | null;
+  mention_count: number;
+  avg_sentiment: number | null;
+}
+
+export interface LeadLag {
+  leads: number | null;
+  coincident: number | null;
+  lags: number | null;
+  n_weeks: number;
+  verdict: "leads" | "coincident" | "lags" | "none" | null;
+}
+
+export interface ThemeIndex {
+  theme: string;
+  window_days: number;
+  constituents: { ticker: string; company_name?: string | null; co_mentions: number; has_prices: boolean }[];
+  index: ThemeIndexPoint[];
+  weekly: ThemeWeek[];
+  lead_lag: { avg_sentiment: LeadLag; mention_count: LeadLag };
+  index_return_pct: number | null;
+}
+
 export interface BasketBreakdown {
   mention_count: number;
   avg_sentiment: number;
