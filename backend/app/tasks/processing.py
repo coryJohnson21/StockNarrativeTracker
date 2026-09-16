@@ -291,6 +291,7 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
 
     # Step 6: Update source status
     source.status = "completed"
+    source.error_message = None
     source.updated_at = datetime.utcnow()
     if not source.source_metadata:
         source.source_metadata = {}
