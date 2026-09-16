@@ -93,4 +93,4 @@ async def backfill(tickers: list[str] | None = None, since_date: str | None = DE
 
 if __name__ == "__main__":
     arg_tickers = [t.upper() for t in sys.argv[1:]] or None
-    print(asyncio.run(backfill(arg_tickers)))
+    logger.info("Backfill complete: %s", asyncio.run(backfill(arg_tickers)))
