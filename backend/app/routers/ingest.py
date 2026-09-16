@@ -7,8 +7,26 @@ from app.database import get_db
 from app.models.models import Source
 from app.schemas.schemas import YouTubeIngestRequest, TranscriptUploadRequest, SourceResponse
 from app.tasks.processing import process_youtube_source, process_text_source
+from app.services.momentum import refresh_stock_momentum, refresh_theme_momentum
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
+
+
+async def _refresh_all_momentum() -> None:
+    from app.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        await refresh_stock_momentum(db)
+        await refresh_theme_momentum(db)
+
+
+@router.post("/refresh-momentum")
+async def refresh_momentum(background_tasks: BackgroundTasks):
+    """Recompute every stock and theme momentum score now. Scores normally refresh
+    after each ingest; this is for after a migration or scoring change that alters
+    the inputs without any new source arriving."""
+    background_tasks.add_task(_refresh_all_momentum)
+    return {"status": "started", "detail": "Recomputing momentum scores in the background"}
 
 
 @router.post("/youtube", response_model=SourceResponse)

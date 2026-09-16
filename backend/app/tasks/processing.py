@@ -261,7 +261,11 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
     db.add(transcript)
     await db.flush()
 
-    # Step 4: Store stock mentions
+    # Step 4: Store stock mentions. Timestamp them by when the source was published,
+    # not when we happened to ingest it -- otherwise a backfilled filing or an old
+    # podcast episode shows up as a mention spike "today" and corrupts every
+    # time-windowed statistic downstream.
+    mentioned_at = source.published_at or source.created_at or datetime.utcnow()
     filer_ticker = (source.source_metadata or {}).get("ticker")
     for stock_data in extraction["stocks"]:
         stock = await _get_or_create_stock(
@@ -272,7 +276,7 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
             stock_id=stock.id,
             sentiment_score=stock_data.get("sentiment", 0),
             context=stock_data.get("context", ""),
-            mentioned_at=datetime.utcnow(),
+            mentioned_at=mentioned_at,
             is_self_mention=filer_ticker is not None and stock.ticker == filer_ticker,
         )
         db.add(mention)
@@ -285,7 +289,7 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
             theme_id=theme.id,
             sentiment_score=theme_data.get("sentiment", 0),
             context=theme_data.get("context", ""),
-            mentioned_at=datetime.utcnow(),
+            mentioned_at=mentioned_at,
         )
         db.add(mention)
 
