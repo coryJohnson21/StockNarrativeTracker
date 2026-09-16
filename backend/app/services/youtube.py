@@ -96,10 +96,17 @@ async def get_captions(info: dict) -> Optional[str]:
     fmt_order = ("json3", "vtt") if is_auto else ("vtt", "json3")
     entry = next((f for fmt in fmt_order for f in track if f.get("ext") == fmt), None) or track[0]
 
+    global _captions_blocked_until
+    if time.monotonic() < _captions_blocked_until:
+        return None  # still inside the rate-limit cooldown; go straight to audio
+
     raw = await _fetch_caption_track(entry["url"])
     if raw is None:
+        _captions_blocked_until = time.monotonic() + _CAPTION_COOLDOWN_SECONDS
         logging.getLogger(__name__).warning(
-            "YouTube kept rate-limiting the caption track for %s; falling back to audio transcription", entry["url"][:80]
+            "YouTube kept rate-limiting the caption track for %s; falling back to audio transcription "
+            "and skipping caption fetches for the next %d minutes",
+            entry["url"][:80], _CAPTION_COOLDOWN_SECONDS // 60,
         )
         return None
     text = _parse_json3(raw) if entry.get("ext") == "json3" else _parse_vtt(raw)
@@ -107,14 +114,19 @@ async def get_captions(info: dict) -> Optional[str]:
 
 
 # YouTube's timedtext endpoint rate-limits an IP with 429s once it has served a
-# couple dozen tracks in a short span, and the block can persist for a while.
-# Space requests out and back off a few times; if it still refuses, return None so
-# the caller falls back to downloading audio and transcribing it rather than
-# failing the video outright.
+# couple dozen tracks in a short span, and the block persists for a while -- it
+# even trickles the 429 response slowly enough to outlast a per-read timeout.
+# Space requests out, cap each attempt's total time, back off a few times, and
+# if it still refuses: return None so the caller falls back to audio, and skip
+# caption fetches entirely for a cooldown so the next videos don't each wait
+# through the same refusals.
 _CAPTION_MIN_GAP_SECONDS = 3.0
 _CAPTION_RETRY_WAITS = (10, 30, 60)
+_CAPTION_ATTEMPT_BUDGET_SECONDS = 45.0
+_CAPTION_COOLDOWN_SECONDS = 30 * 60
 _caption_lock = asyncio.Lock()
 _last_caption_fetch = 0.0
+_captions_blocked_until = 0.0
 
 
 async def _fetch_caption_track(url: str) -> Optional[str]:
@@ -127,9 +139,12 @@ async def _fetch_caption_track(url: str) -> Optional[str]:
                 gap = _CAPTION_MIN_GAP_SECONDS - (time.monotonic() - _last_caption_fetch)
                 if gap > 0:
                     await asyncio.sleep(gap)
-                response = await client.get(url)
+                try:
+                    response = await asyncio.wait_for(client.get(url), _CAPTION_ATTEMPT_BUDGET_SECONDS)
+                except (asyncio.TimeoutError, httpx.TransportError):
+                    response = None
                 _last_caption_fetch = time.monotonic()
-            if response.status_code == 429:
+            if response is None or response.status_code == 429:
                 continue
             response.raise_for_status()
             return response.text
