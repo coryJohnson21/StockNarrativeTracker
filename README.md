@@ -72,6 +72,20 @@ alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+Migrations are the source of truth for the schema. The app also runs `Base.metadata.create_all` on startup as a dev convenience, but that only adds missing tables and never alters existing ones — every model change still needs a migration. If a database was bootstrapped by `create_all` alone (no `alembic_version` table), mark it as current before upgrading:
+
+```bash
+alembic stamp head
+```
+
+### Backend tests
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest
+```
+
 ### Frontend
 
 ```bash
