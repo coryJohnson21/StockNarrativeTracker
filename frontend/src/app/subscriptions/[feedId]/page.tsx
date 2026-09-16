@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Rss, Youtube, Loader2, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, Rss, Youtube, Loader2, AlertCircle, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getPodcastFeedDetail, getSourceExtractions } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { getPodcastFeedDetail, getSourceExtractions, pollPodcastFeedNow } from "@/lib/api";
 import type { SourceExtractions } from "@/lib/api";
 import { timeAgo, formatDuration } from "@/lib/utils";
 import type { PodcastFeedDetail, PodcastEpisode } from "@/types";
@@ -101,6 +102,7 @@ export default function SubscriptionDetailPage() {
   const [feed, setFeed] = useState<PodcastFeedDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (!feedId) return;
@@ -109,6 +111,21 @@ export default function SubscriptionDetailPage() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [feedId]);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await pollPodcastFeedNow(feedId);
+      // Newly-found episodes are created (as "pending") before ingestion runs in the
+      // background, so a short delay is enough for them to show up in the list.
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      setFeed(await getPodcastFeedDetail(feedId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to refresh feed");
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -129,24 +146,30 @@ export default function SubscriptionDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link href="/subscriptions" className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mb-3">
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Subscriptions
-        </Link>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          {feed.source_type === "youtube" ? (
-            <Youtube className="h-7 w-7 text-red-400" />
-          ) : (
-            <Rss className="h-7 w-7 text-orange-400" />
-          )}
-          {feed.label}
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          {feed.episode_count} {feed.source_type === "youtube" ? "video" : "episode"}
-          {feed.episode_count === 1 ? "" : "s"}
-          {feed.last_polled_at && ` · last checked ${timeAgo(feed.last_polled_at)}`}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <Link href="/subscriptions" className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mb-3">
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Subscriptions
+          </Link>
+          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            {feed.source_type === "youtube" ? (
+              <Youtube className="h-7 w-7 text-red-400" />
+            ) : (
+              <Rss className="h-7 w-7 text-orange-400" />
+            )}
+            {feed.label}
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            {feed.episode_count} {feed.source_type === "youtube" ? "video" : "episode"}
+            {feed.episode_count === 1 ? "" : "s"}
+            {feed.last_polled_at && ` · last checked ${timeAgo(feed.last_polled_at)}`}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="shrink-0 mt-8">
+          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${refreshing ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
       </div>
 
       {feed.episodes.length === 0 ? (

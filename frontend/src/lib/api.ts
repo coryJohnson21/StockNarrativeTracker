@@ -236,6 +236,10 @@ export async function pollPodcastFeedNow(id: string): Promise<{ status: string; 
   return apiFetch(`/api/podcasts/${id}/poll`, { method: "POST" });
 }
 
+export async function pollAllPodcastFeedsNow(): Promise<{ status: string; detail: string }> {
+  return apiFetch(`/api/podcasts/poll-all`, { method: "POST" });
+}
+
 export async function searchPodcasts(query: string): Promise<{ results: PodcastSearchResult[] }> {
   return apiFetch(`/api/podcasts/search?q=${encodeURIComponent(query)}`);
 }

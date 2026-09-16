@@ -13,7 +13,7 @@ from app.schemas.schemas import (
 )
 from app.services import podcast as podcast_service
 from app.services import youtube as youtube_service
-from app.tasks.podcast_poll import poll_feed
+from app.tasks.podcast_poll import poll_feed, poll_all_feeds
 
 router = APIRouter(prefix="/podcasts", tags=["podcasts"])
 
@@ -139,3 +139,11 @@ async def poll_now(feed_id: str, background_tasks: BackgroundTasks, db: AsyncSes
 
     background_tasks.add_task(poll_feed, feed_id)
     return {"status": "started", "detail": "Checking feed for new episodes in the background"}
+
+
+@router.post("/poll-all")
+async def poll_all_now(background_tasks: BackgroundTasks):
+    """Check every subscribed feed for new episodes right now instead of waiting
+    for the periodic poller."""
+    background_tasks.add_task(poll_all_feeds)
+    return {"status": "started", "detail": "Checking all feeds for new episodes in the background"}
