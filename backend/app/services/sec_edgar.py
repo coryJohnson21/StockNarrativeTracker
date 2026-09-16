@@ -138,13 +138,19 @@ async def _find_earnings_exhibit(
     return None
 
 
-async def fetch_filing_text(client: httpx.AsyncClient, url: str) -> str:
-    """Download a filing document and strip it down to plain text."""
-    response = await _get(client, url)
-    soup = BeautifulSoup(response.text, "lxml")
+def _strip_html_to_text(html: str) -> str:
+    """CPU-bound HTML parsing -- run off the event loop via asyncio.to_thread, since a
+    multi-MB filing document can otherwise stall every other request for seconds."""
+    soup = BeautifulSoup(html, "lxml")
 
     for tag in soup(["script", "style"]):
         tag.decompose()
 
     text = soup.get_text(separator=" ")
     return re.sub(r"\s+", " ", text).strip()
+
+
+async def fetch_filing_text(client: httpx.AsyncClient, url: str) -> str:
+    """Download a filing document and strip it down to plain text."""
+    response = await _get(client, url)
+    return await asyncio.to_thread(_strip_html_to_text, response.text)
