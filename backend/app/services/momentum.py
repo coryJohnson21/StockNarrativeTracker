@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, distinct, case, desc
+from sqlalchemy import select, func, and_, distinct, case, desc, null
 from app.models.models import (
     Stock, Theme, StockMention, ThemeMention,
     StockMomentum, ThemeMomentum, Source,
@@ -159,6 +159,7 @@ class MentionStats:
     w_recent_30d: float = 0.0
     w_prior_23d: float = 0.0
     w_sentiment_sum: float = 0.0
+    novelty_7d: Optional[float] = None
 
     @property
     def w_avg_sentiment(self) -> float:
@@ -179,7 +180,13 @@ def _stats_columns(mention_model, now: datetime) -> list:
     in_7d = mention_model.mentioned_at >= cutoff_7d
     in_30d = mention_model.mentioned_at >= cutoff_30d
     in_prior = and_(mention_model.mentioned_at >= cutoff_30d, mention_model.mentioned_at < cutoff_7d)
+    novelty_7d = (
+        func.avg(case((in_7d, mention_model.novelty), else_=None))
+        if hasattr(mention_model, "novelty")
+        else null()
+    )
     return [
+        novelty_7d.label("novelty_7d"),
         func.count(mention_model.id).label("total"),
         func.sum(case((in_7d, 1), else_=0)).label("recent_7d"),
         func.sum(case((in_30d, 1), else_=0)).label("recent_30d"),
@@ -207,6 +214,7 @@ def _stats_from_row(row) -> MentionStats:
         w_recent_30d=float(row.w_recent_30d or 0.0),
         w_prior_23d=float(row.w_prior_23d or 0.0),
         w_sentiment_sum=float(row.w_sentiment_sum or 0.0),
+        novelty_7d=round(float(row.novelty_7d), 3) if getattr(row, "novelty_7d", None) is not None else None,
     )
 
 
@@ -276,6 +284,8 @@ async def _refresh_momentum(
         momentum.mention_growth_rate = round(s.growth_rate, 3)
         momentum.avg_sentiment = round(s.avg_sentiment, 1)
         momentum.unique_sources = s.unique_sources
+        if hasattr(momentum, "novelty_7d"):
+            momentum.novelty_7d = s.novelty_7d
         momentum.computed_at = now
 
     await db.commit()
@@ -336,6 +346,7 @@ async def _trending_by_type_filter(
                 "mention_growth_rate": round(s.growth_rate, 3),
                 "avg_sentiment": round(s.avg_sentiment, 1),
                 "unique_sources": s.unique_sources,
+                "novelty_7d": s.novelty_7d,
                 "ai_summary": None,
                 "computed_at": now,
             }

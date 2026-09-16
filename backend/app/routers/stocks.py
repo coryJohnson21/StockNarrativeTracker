@@ -26,6 +26,7 @@ from app.services.momentum import (
 )
 from app.services import market_data
 from app.services.calls import get_stock_calls, get_stock_call_summary
+from app.services.narratives import get_stock_narratives
 from app.services.extraction import condense_company_description, generate_narrative_summary
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
@@ -74,6 +75,7 @@ async def get_trending_stocks(
                 previous_label=extras.get(row["parent"].id, {}).get("previous_label"),
                 current_price=extras.get(row["parent"].id, {}).get("current_price"),
                 market_cap=extras.get(row["parent"].id, {}).get("market_cap"),
+                novelty_7d=row.get("novelty_7d"),
                 computed_at=row["computed_at"],
             )
             for row in rows
@@ -118,6 +120,7 @@ async def get_trending_stocks(
                 previous_label=momentum.previous_label,
                 current_price=momentum.current_price,
                 market_cap=momentum.market_cap,
+                novelty_7d=momentum.novelty_7d,
                 computed_at=momentum.computed_at,
             )
         )
@@ -339,6 +342,7 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
     mention_breakdown = await get_stock_mention_breakdown(db, stock.id)
     self_vs_external_breakdown = await get_stock_self_vs_external_breakdown(db, stock.id)
     call_summary = await get_stock_call_summary(db, stock.id)
+    narratives = await get_stock_narratives(db, stock.id)
 
     total_mentions = mention_breakdown["filing"]["mention_count"] + mention_breakdown["media"]["mention_count"]
 
@@ -388,4 +392,5 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
         "self_vs_external_breakdown": self_vs_external_breakdown,
         "narrative_summary": narrative_summary,
         "calls": call_summary,
+        "narratives": narratives,
     }

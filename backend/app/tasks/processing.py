@@ -14,6 +14,7 @@ from app.services.youtube import download_audio, get_video_info, get_captions, p
 from app.services.transcription import transcribe_audio
 from app.services.extraction import extract_from_transcript, extract_filing_details
 from app.services.embeddings import generate_embedding
+from app.services.narratives import embed_and_score_mentions
 from app.services.momentum import refresh_stock_momentum, refresh_theme_momentum
 from app.services import sec_edgar
 from app.services import podcast as podcast_service
@@ -288,6 +289,7 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
     # time-windowed statistic downstream.
     mentioned_at = source.published_at or source.created_at or datetime.utcnow()
     filer_ticker = (source.source_metadata or {}).get("ticker")
+    new_mentions: list[StockMention] = []
     for stock_data in extraction["stocks"]:
         stock = await _get_or_create_stock(
             db, stock_data["ticker"], stock_data.get("company", "")
@@ -301,6 +303,15 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
             is_self_mention=filer_ticker is not None and stock.ticker == filer_ticker,
         )
         db.add(mention)
+        new_mentions.append(mention)
+    await db.flush()
+
+    # Step 4a: Embed each mention's context and score how new it is. Best-effort:
+    # a failed embedding call shouldn't fail the whole source.
+    try:
+        await embed_and_score_mentions(db, new_mentions)
+    except Exception:
+        logger.exception("Mention embedding failed for source %s; continuing without novelty", source.id)
 
     # Step 4b: Store explicit recommendations
     await _store_calls(db, source, extraction.get("calls", []), mentioned_at)

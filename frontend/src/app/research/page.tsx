@@ -5,7 +5,7 @@ import { FlaskConical, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { Bar, BarChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { getBacktest, getResearchStatus, getSourceReliability, recomputeSourceReliability, refreshResearch } from "@/lib/api";
+import { backfillMentionEmbeddings, getBacktest, getResearchStatus, getSourceReliability, recomputeSourceReliability, refreshResearch } from "@/lib/api";
 import type { BacktestResult, FactorIC, ResearchStatus, SourceReliability } from "@/types";
 
 const HORIZONS = [5, 20, 60];
@@ -112,7 +112,19 @@ export default function ResearchPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [recomputing, setRecomputing] = useState(false);
+  const [embedding, setEmbedding] = useState<"idle" | "running" | "started">("idle");
   const [error, setError] = useState<string | null>(null);
+
+  async function handleBackfillEmbeddings() {
+    setEmbedding("running");
+    try {
+      await backfillMentionEmbeddings();
+      setEmbedding("started");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Backfill failed");
+      setEmbedding("idle");
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -184,10 +196,22 @@ export default function ResearchPage() {
             information available that day, then compared to what the stock did next.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="shrink-0">
-          <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh prices & snapshots
-        </Button>
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleBackfillEmbeddings}
+            disabled={embedding !== "idle"}
+            title="Embed every past mention so novelty and distinct-narrative counts cover history, not just new ingests"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${embedding === "running" ? "animate-spin" : ""}`} />
+            {embedding === "started" ? "Embedding in background…" : "Embed past mentions"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh prices & snapshots
+          </Button>
+        </div>
       </div>
 
       {status && (

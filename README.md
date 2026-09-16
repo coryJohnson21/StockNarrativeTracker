@@ -134,6 +134,7 @@ npm run dev
 | GET | `/api/research/status` | Snapshot and price coverage |
 | GET | `/api/research/reliability` | Per-channel track record on explicit calls and the resulting mention weight |
 | POST | `/api/research/reliability/recompute` | Re-score channels from stored calls and prices (`horizon`) |
+| POST | `/api/research/backfill-embeddings` | Embed past mention contexts and score novelty (one-time, oldest first) |
 
 Full interactive docs at: `http://localhost:8000/docs`
 
@@ -161,6 +162,10 @@ The Research page (`/research`) is the honest answer. `POST /api/research/refres
 - the mean of per-day ICs and its t-stat, so a single lucky week can't carry a factor.
 
 A positive, significant IC on sentiment means narrative leads price. A negative one means attention peaks late and the signal is contrarian. Treat anything under a few hundred observations across 20+ days as a hypothesis. With `ENABLE_AUTO_INGEST=true` the refresh runs daily.
+
+### Is anyone saying anything new?
+
+Ten sources repeating one headline is one signal, not ten. Each mention's context is embedded (`text-embedding-3-small`, stored in pgvector on `stock_mentions.embedding`) and given a **novelty** score: one minus its cosine similarity to the closest thing any *other* source said about the same stock in the preceding 30 days. Echoes land near 0, new angles near 1, and the first mention in a window is unmeasured (`NULL` at ingest, `1.0` after backfill). The trending table tags each stock's week as **new** or **echo** from the 7-day mean (`novelty_7d`), and the stock page clusters the last 30 days of mentions into **distinct narratives** with a single greedy pass at cosine ≥ 0.85, reporting how much of the coverage is repetition (`echo_ratio`). Run `POST /api/research/backfill-embeddings` once to cover mentions ingested before this existed — cents, not dollars.
 
 ### Who is actually right?
 

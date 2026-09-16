@@ -130,7 +130,17 @@ export function TrendingStocksTable({ limit = 20, compact = false, category, cha
                 </td>
               )}
               <td className="py-3 px-3">
-                <SignalChip label={stock.label} />
+                <div className="flex items-center gap-1.5">
+                  <SignalChip label={stock.label} />
+                  {stock.novelty_7d != null && stock.mention_count_7d > 0 && (
+                    <span
+                      className={`text-[10px] uppercase tracking-wide ${stock.novelty_7d >= 0.5 ? "text-violet-400" : "text-muted-foreground/70"}`}
+                      title={`Novelty ${stock.novelty_7d.toFixed(2)} — ${stock.novelty_7d >= 0.5 ? "new things are being said this week" : "this week mostly repeats earlier coverage"}`}
+                    >
+                      {stock.novelty_7d >= 0.5 ? "new" : "echo"}
+                    </span>
+                  )}
+                </div>
               </td>
               {!compact && (
                 <td className="py-3 px-3">

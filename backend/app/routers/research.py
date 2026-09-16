@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, AsyncSessionLocal
+from app.services.narratives import backfill_mention_embeddings
 from app.services.reliability import compute_source_reliability, get_source_reliability
 from app.services.research import get_research_status, refresh_research, run_backtest
 
@@ -27,6 +28,20 @@ async def refresh(
     first mention to today. Runs in the background; poll /status."""
     background_tasks.add_task(_refresh_in_background, full_prices)
     return {"status": "started", "detail": "Refreshing prices and rebuilding momentum snapshots in the background"}
+
+
+async def _backfill_embeddings_in_background() -> None:
+    async with AsyncSessionLocal() as db:
+        await backfill_mention_embeddings(db)
+
+
+@router.post("/backfill-embeddings")
+async def backfill_embeddings(background_tasks: BackgroundTasks):
+    """Embed every existing mention context (text-embedding-3-small; a few cents
+    for thousands of mentions) and score novelty oldest-first. Needed once so
+    mentions from before this feature get novelty and cluster into narratives."""
+    background_tasks.add_task(_backfill_embeddings_in_background)
+    return {"status": "started", "detail": "Embedding past mentions and scoring novelty in the background"}
 
 
 @router.get("/reliability")

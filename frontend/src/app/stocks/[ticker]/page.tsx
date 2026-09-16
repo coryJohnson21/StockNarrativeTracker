@@ -153,6 +153,46 @@ export default function StockDetailPage() {
             </CardContent>
           </Card>
 
+          {profile.narratives && profile.narratives.embedded_count > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Distinct Narratives</CardTitle>
+                <CardDescription>
+                  {profile.narratives.distinct_narratives} separate storyline{profile.narratives.distinct_narratives === 1 ? "" : "s"} across{" "}
+                  {profile.narratives.embedded_count} mention{profile.narratives.embedded_count === 1 ? "" : "s"} in the last {profile.narratives.window_days} days
+                  {profile.narratives.echo_ratio != null && profile.narratives.echo_ratio > 0 && (
+                    <> — <span className="text-foreground">{Math.round(profile.narratives.echo_ratio * 100)}%</span> of coverage repeats an earlier story</>
+                  )}
+                  {profile.narratives.novelty_7d != null && (
+                    <>. This week&apos;s novelty: <span className={profile.narratives.novelty_7d >= 0.5 ? "text-violet-400" : "text-foreground"}>{profile.narratives.novelty_7d.toFixed(2)}</span></>
+                  )}
+                  .
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-3">
+                  {profile.narratives.clusters.map((c, i) => (
+                    <li key={i} className="flex gap-3 text-sm">
+                      <div className="shrink-0 w-10 text-center">
+                        <div className="text-lg font-semibold tabular-nums leading-none">{c.size}</div>
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{c.size === 1 ? "mention" : "mentions"}</div>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="leading-snug">{c.representative}</p>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1">
+                          <SentimentBadge score={c.avg_sentiment} />
+                          <span>{c.unique_sources} source{c.unique_sources === 1 ? "" : "s"}</span>
+                          <span>first {new Date(c.first_seen).toLocaleDateString()}{c.source_channel ? ` · ${c.source_channel}` : ""}</span>
+                          {c.novelty != null && c.novelty >= 0.5 && <span className="text-violet-400">new angle when it appeared</span>}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
           {profile.calls && profile.calls.latest.length > 0 && (
             <Card>
               <CardHeader className="pb-2">

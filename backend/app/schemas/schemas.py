@@ -71,6 +71,7 @@ class StockMomentumResponse(BaseModel):
     previous_label: Optional[str] = None
     current_price: Optional[float] = None
     market_cap: Optional[float] = None
+    novelty_7d: Optional[float] = None
     computed_at: datetime
 
     @computed_field

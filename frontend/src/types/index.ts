@@ -39,10 +39,33 @@ export interface StockTrending {
   confidence?: Confidence;
   current_price?: number;
   market_cap?: number;
+  novelty_7d?: number | null;
   computed_at: string;
 }
 
 export type Confidence = "low" | "medium" | "high";
+
+export interface NarrativeCluster {
+  size: number;
+  first_seen: string;
+  last_seen: string;
+  avg_sentiment: number;
+  unique_sources: number;
+  representative?: string | null;
+  source_title?: string | null;
+  source_channel?: string | null;
+  novelty?: number | null;
+}
+
+export interface StockNarratives {
+  window_days: number;
+  mention_count: number;
+  embedded_count: number;
+  distinct_narratives: number;
+  echo_ratio: number | null;
+  novelty_7d: number | null;
+  clusters: NarrativeCluster[];
+}
 
 export interface StockSearchResult {
   ticker: string;
@@ -100,6 +123,7 @@ export interface StockProfile {
   };
   narrative_summary?: string;
   calls: StockCallSummary;
+  narratives: StockNarratives;
 }
 
 export interface ResearchStatus {

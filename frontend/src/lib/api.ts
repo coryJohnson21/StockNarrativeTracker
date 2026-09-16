@@ -290,6 +290,10 @@ export async function getBacktest(params: { horizon: number; buckets?: number; m
   return apiFetch(`/api/research/backtest?${q}`);
 }
 
+export async function backfillMentionEmbeddings(): Promise<{ status: string; detail: string }> {
+  return apiFetch("/api/research/backfill-embeddings", { method: "POST" });
+}
+
 export async function getSourceReliability(): Promise<{ channels: SourceReliability[] }> {
   return apiFetch("/api/research/reliability");
 }

@@ -91,6 +91,11 @@ class StockMention(Base):
     # get downweighted in momentum scoring since a company talking about itself in its
     # own press release isn't an independent signal the way outside coverage is.
     is_self_mention = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Embedding of `context`, and how far it sits from everything said about the same
+    # stock in the 30 days before it (1 = nothing like it, 0 = verbatim echo). Both
+    # nullable: mentions without a context string, or from before this existed.
+    embedding = Column(Vector(1536))
+    novelty = Column(Float)
 
     source = relationship("Source", back_populates="stock_mentions")
     stock = relationship("Stock", back_populates="mentions")
@@ -198,6 +203,9 @@ class StockMomentum(Base):
     previous_label = Column(String(20))
     current_price = Column(Float)
     market_cap = Column(Float)
+    # Mean novelty of the last 7 days' mentions: high means new things are being
+    # said, low means the same story is being echoed.
+    novelty_7d = Column(Float)
     computed_at = Column(DateTime, default=datetime.utcnow)
 
     stock = relationship("Stock", back_populates="momentum")
