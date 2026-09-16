@@ -1,4 +1,4 @@
-import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed, ResearchStatus, BacktestResult } from "@/types";
+import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed, ResearchStatus, BacktestResult, SourceReliability } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -288,6 +288,14 @@ export async function getBacktest(params: { horizon: number; buckets?: number; m
     min_mentions_7d: String(params.min_mentions_7d ?? 1),
   });
   return apiFetch(`/api/research/backtest?${q}`);
+}
+
+export async function getSourceReliability(): Promise<{ channels: SourceReliability[] }> {
+  return apiFetch("/api/research/reliability");
+}
+
+export async function recomputeSourceReliability(horizon = 20): Promise<{ channels: SourceReliability[] }> {
+  return apiFetch(`/api/research/reliability/recompute?horizon=${horizon}`, { method: "POST" });
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {

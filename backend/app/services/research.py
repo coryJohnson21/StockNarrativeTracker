@@ -428,9 +428,12 @@ async def run_backtest(db: AsyncSession, horizon: int = 20, buckets: int = 5, mi
 
 
 async def refresh_research(db: AsyncSession, full_prices: bool = False) -> dict:
+    from app.services.reliability import compute_source_reliability
+
     prices = await refresh_price_history(db, full=full_prices)
     snapshots = await rebuild_momentum_snapshots(db)
-    return {"prices": prices, "snapshots": snapshots}
+    reliability = await compute_source_reliability(db)
+    return {"prices": prices, "snapshots": snapshots, "reliability_channels": len(reliability)}
 
 
 async def get_research_status(db: AsyncSession) -> dict:

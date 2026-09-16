@@ -132,6 +132,8 @@ npm run dev
 | POST | `/api/research/refresh` | Pull daily prices (+ SPY) and rebuild point-in-time momentum snapshots |
 | GET | `/api/research/backtest` | Forward returns by score quintile and rank IC per factor (`horizon`, `buckets`, `min_mentions_7d`) |
 | GET | `/api/research/status` | Snapshot and price coverage |
+| GET | `/api/research/reliability` | Per-channel track record on explicit calls and the resulting mention weight |
+| POST | `/api/research/reliability/recompute` | Re-score channels from stored calls and prices (`horizon`) |
 
 Full interactive docs at: `http://localhost:8000/docs`
 
@@ -159,6 +161,10 @@ The Research page (`/research`) is the honest answer. `POST /api/research/refres
 - the mean of per-day ICs and its t-stat, so a single lucky week can't carry a factor.
 
 A positive, significant IC on sentiment means narrative leads price. A negative one means attention peaks late and the signal is contrarian. Treat anything under a few hundred observations across 20+ days as a hypothesis. With `ENABLE_AUTO_INGEST=true` the refresh runs daily.
+
+### Who is actually right?
+
+Every explicit buy/sell/avoid call is judged against the stock's SPY-excess return over the next 20 trading days (hold and watch take no side and aren't scored). Calls are grouped by channel — the podcast, YouTube channel, or subreddit, falling back to source type — and each channel gets a **reliability weight** of `0.5 + shrunk hit rate`, where the hit rate is pulled toward a coin flip by ten pseudo-calls. A channel with no record is exactly 1.0; one that's right 70% of the time over a real sample is about 1.2; 3-for-3 is about 1.1, because three lucky calls aren't skill. That weight multiplies the channel's mentions in the live momentum score, so a bullish take from a source with a good record counts for more than the same words from one that's usually wrong. It is deliberately *not* used in the point-in-time snapshots — a track record is built from outcomes that happen after each snapshot day, and using it there would be look-ahead bias.
 
 ## AI Pipeline
 

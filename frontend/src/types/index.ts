@@ -148,6 +148,20 @@ export interface BacktestResult {
   factor_ic: FactorIC[];
 }
 
+export interface SourceReliability {
+  channel_key: string;
+  source_type: string | null;
+  horizon: number;
+  n_calls: number;
+  n_scored: number;
+  hits: number;
+  hit_rate: number | null;
+  wilson_lower: number | null;
+  mean_alpha_pct: number | null;
+  weight: number;
+  computed_at: string;
+}
+
 export type CallType = "buy" | "sell" | "hold" | "avoid" | "watch";
 
 export interface StockCall {

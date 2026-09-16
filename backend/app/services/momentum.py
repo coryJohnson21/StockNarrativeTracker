@@ -136,10 +136,14 @@ def _compute_score(
 
 
 def _mention_weight_expr(mention_model):
+    """Per-mention weight: self-mentions discounted, then scaled by the source's
+    channel track record (Source.reliability_weight, 1.0 when unknown). Every query
+    using this must join Source."""
+    reliability = func.coalesce(Source.reliability_weight, 1.0)
     if hasattr(mention_model, "is_self_mention"):
-        return case((mention_model.is_self_mention.is_(True), SELF_MENTION_WEIGHT), else_=1.0)
+        return case((mention_model.is_self_mention.is_(True), SELF_MENTION_WEIGHT), else_=1.0) * reliability
     # Themes have no "self-mention" concept (no single company files a theme).
-    return 1.0
+    return reliability
 
 
 @dataclass
@@ -242,7 +246,9 @@ async def _refresh_momentum(
 
     rows = (
         await db.execute(
-            select(mention_fk_col.label("parent_id"), *_stats_columns(mention_model, now)).group_by(mention_fk_col)
+            select(mention_fk_col.label("parent_id"), *_stats_columns(mention_model, now))
+            .join(Source, mention_model.source_id == Source.id)
+            .group_by(mention_fk_col)
         )
     ).all()
     stats_by_parent = {row.parent_id: _stats_from_row(row) for row in rows}

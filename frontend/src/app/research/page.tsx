@@ -5,8 +5,8 @@ import { FlaskConical, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { Bar, BarChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { getBacktest, getResearchStatus, refreshResearch } from "@/lib/api";
-import type { BacktestResult, FactorIC, ResearchStatus } from "@/types";
+import { getBacktest, getResearchStatus, getSourceReliability, recomputeSourceReliability, refreshResearch } from "@/lib/api";
+import type { BacktestResult, FactorIC, ResearchStatus, SourceReliability } from "@/types";
 
 const HORIZONS = [5, 20, 60];
 
@@ -27,6 +27,74 @@ function num(v: number | null | undefined, digits = 3): string {
   return v.toFixed(digits);
 }
 
+function weightClass(w: number): string {
+  if (w >= 1.1) return "text-green-400";
+  if (w <= 0.9) return "text-red-400";
+  return "text-muted-foreground";
+}
+
+function TrackRecord({ channels, onRecompute, recomputing }: { channels: SourceReliability[]; onRecompute: () => void; recomputing: boolean }) {
+  const scored = channels.filter((c) => c.n_scored > 0);
+  const horizon = channels[0]?.horizon ?? 20;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="text-base">Who is actually right?</CardTitle>
+            <CardDescription>
+              Each channel&apos;s explicit buy/sell/avoid calls judged against SPY over the next {horizon} trading days.
+              The weight multiplies that channel&apos;s mentions in the live momentum score — 1.0 is unknown or a coin flip,
+              and a handful of lucky calls barely moves it.
+            </CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={onRecompute} disabled={recomputing} className="shrink-0">
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${recomputing ? "animate-spin" : ""}`} />
+            Recompute
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {channels.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No calls have been scored yet. Calls need a realized {horizon}-day return, so recent ones will appear as prices catch up.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs tabular-nums">
+              <thead className="text-muted-foreground uppercase tracking-wide">
+                <tr className="border-b border-border">
+                  <th className="text-left py-1.5">Channel</th>
+                  <th className="text-right py-1.5">Calls</th>
+                  <th className="text-right py-1.5">Scored</th>
+                  <th className="text-right py-1.5">Hit rate</th>
+                  <th className="text-right py-1.5" title="Lower bound of the 95% confidence interval on the hit rate">≥ (95%)</th>
+                  <th className="text-right py-1.5" title="Mean excess return in the direction of the call">Alpha</th>
+                  <th className="text-right py-1.5">Weight</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...scored, ...channels.filter((c) => c.n_scored === 0)].map((c) => (
+                  <tr key={c.channel_key} className="border-b border-border/50">
+                    <td className="py-1.5">
+                      <span className="text-foreground">{c.channel_key}</span>
+                      {c.source_type && c.source_type !== c.channel_key && <span className="text-muted-foreground ml-1.5">{c.source_type}</span>}
+                    </td>
+                    <td className="py-1.5 text-right text-muted-foreground">{c.n_calls}</td>
+                    <td className="py-1.5 text-right text-muted-foreground">{c.n_scored}</td>
+                    <td className="py-1.5 text-right">{c.hit_rate === null ? "—" : `${(c.hit_rate * 100).toFixed(0)}%`}</td>
+                    <td className="py-1.5 text-right text-muted-foreground">{c.wilson_lower === null ? "—" : `${(c.wilson_lower * 100).toFixed(0)}%`}</td>
+                    <td className={`py-1.5 text-right ${c.mean_alpha_pct === null ? "" : c.mean_alpha_pct >= 0 ? "text-green-400" : "text-red-400"}`}>{pct(c.mean_alpha_pct)}</td>
+                    <td className={`py-1.5 text-right font-medium ${weightClass(c.weight)}`}>{c.weight.toFixed(2)}×</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function tStatVerdict(t: number | null): { text: string; className: string } {
   if (t === null) return { text: "not enough dates", className: "text-muted-foreground" };
   const a = Math.abs(t);
@@ -40,17 +108,24 @@ export default function ResearchPage() {
   const [horizon, setHorizon] = useState(20);
   const [minMentions, setMinMentions] = useState(1);
   const [result, setResult] = useState<BacktestResult | null>(null);
+  const [channels, setChannels] = useState<SourceReliability[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [recomputing, setRecomputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [s, r] = await Promise.all([getResearchStatus(), getBacktest({ horizon, min_mentions_7d: minMentions })]);
+      const [s, r, rel] = await Promise.all([
+        getResearchStatus(),
+        getBacktest({ horizon, min_mentions_7d: minMentions }),
+        getSourceReliability(),
+      ]);
       setStatus(s);
       setResult(r);
+      setChannels(rel.channels);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load research data");
     } finally {
@@ -73,6 +148,18 @@ export default function ResearchPage() {
       setError(e instanceof Error ? e.message : "Refresh failed");
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  async function handleRecompute() {
+    setRecomputing(true);
+    try {
+      const rel = await recomputeSourceReliability(horizon);
+      setChannels(rel.channels);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Recompute failed");
+    } finally {
+      setRecomputing(false);
     }
   }
 
@@ -278,6 +365,8 @@ export default function ResearchPage() {
               </Card>
             </div>
           )}
+
+          <TrackRecord channels={channels} onRecompute={handleRecompute} recomputing={recomputing} />
         </>
       )}
     </div>

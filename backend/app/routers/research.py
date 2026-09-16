@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, AsyncSessionLocal
+from app.services.reliability import compute_source_reliability, get_source_reliability
 from app.services.research import get_research_status, refresh_research, run_backtest
 
 router = APIRouter(prefix="/research", tags=["research"])
@@ -26,6 +27,24 @@ async def refresh(
     first mention to today. Runs in the background; poll /status."""
     background_tasks.add_task(_refresh_in_background, full_prices)
     return {"status": "started", "detail": "Refreshing prices and rebuilding momentum snapshots in the background"}
+
+
+@router.get("/reliability")
+async def reliability(db: AsyncSession = Depends(get_db)):
+    """Each channel's track record on its explicit calls: hit rate against SPY-excess
+    return, a shrunk reliability weight, and the size of the sample behind it."""
+    return {"channels": await get_source_reliability(db)}
+
+
+@router.post("/reliability/recompute")
+async def recompute_reliability(
+    horizon: int = Query(20, ge=1, le=250, description="Trading days after a call over which it is judged"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-score every channel from stored calls and prices (no network; fast) and
+    update the reliability weight on their sources. Momentum picks the new weights
+    up on its next refresh."""
+    return {"channels": await compute_source_reliability(db, horizon=horizon)}
 
 
 @router.get("/backtest")

@@ -20,6 +20,10 @@ class Source(Base):
     status = Column(String(20), default="pending")  # pending, processing, completed, failed
     error_message = Column(Text)
     source_metadata = Column("metadata", JSONB, default={})
+    # Multiplier applied to this source's mentions in live momentum scoring, derived
+    # from its channel's realized call track record (see services/reliability.py).
+    # 1.0 = unknown or coin-flip; above 1 has been right more than chance, below 1 wrong.
+    reliability_weight = Column(Float, nullable=False, default=1.0, server_default="1.0")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -110,6 +114,26 @@ class StockCall(Base):
 
     source = relationship("Source")
     stock = relationship("Stock")
+
+
+class SourceReliability(Base):
+    """A channel's (podcast, YouTube channel, subreddit, or source type when no
+    channel is known) track record on the explicit calls it made, scored against
+    realized SPY-excess returns."""
+    __tablename__ = "source_reliability"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    channel_key = Column(String(300), unique=True, nullable=False)
+    source_type = Column(String(20))
+    horizon = Column(Integer, nullable=False)
+    n_calls = Column(Integer, nullable=False, default=0)
+    n_scored = Column(Integer, nullable=False, default=0)
+    hits = Column(Integer, nullable=False, default=0)
+    hit_rate = Column(Float)
+    wilson_lower = Column(Float)
+    mean_alpha_pct = Column(Float)
+    weight = Column(Float, nullable=False, default=1.0)
+    computed_at = Column(DateTime, default=datetime.utcnow)
 
 
 class StockPrice(Base):
