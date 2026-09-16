@@ -201,12 +201,25 @@ async def extract_from_transcript(transcript: str, title: str = "", known_themes
         max_tokens=8000,
     )
 
-    raw = response.choices[0].message.content
-    result = json.loads(raw)
+    return _sanitize_extraction(json.loads(response.choices[0].message.content))
 
-    # Validate and sanitize
+
+CALL_TYPES = ("buy", "sell", "hold", "avoid", "watch")
+
+
+def _clamp_sentiment(value) -> float:
+    try:
+        return float(max(-100, min(100, float(value))))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _sanitize_extraction(result: dict) -> dict:
+    """Validate and normalize a raw GPT extraction. Tickers go through the same
+    normalization everywhere (stocks and calls) so a call on "brk.b" lands on the
+    same Stock row as a mention of BRK-B."""
     stocks = []
-    for s in result.get("stocks", []):
+    for s in result.get("stocks", []) or []:
         if isinstance(s, dict) and s.get("ticker"):
             ticker = _normalize_ticker(str(s["ticker"]))
             if ticker is None:
@@ -215,38 +228,44 @@ async def extract_from_transcript(transcript: str, title: str = "", known_themes
                 {
                     "ticker": ticker,
                     "company": str(s.get("company", ""))[:200],
-                    "sentiment": float(max(-100, min(100, s.get("sentiment", 0)))),
+                    "sentiment": _clamp_sentiment(s.get("sentiment", 0)),
                     "context": str(s.get("context", ""))[:300],
                 }
             )
 
     themes = []
-    for t in result.get("themes", []):
+    for t in result.get("themes", []) or []:
         if isinstance(t, dict) and t.get("name"):
             themes.append(
                 {
                     "name": str(t["name"])[:100],
-                    "sentiment": float(max(-100, min(100, t.get("sentiment", 0)))),
+                    "sentiment": _clamp_sentiment(t.get("sentiment", 0)),
                     "context": str(t.get("context", ""))[:300],
                 }
             )
 
     calls = []
-    for c in result.get("calls", []):
-        if isinstance(c, dict) and c.get("ticker") and c.get("call") in ("buy", "sell", "hold", "avoid", "watch"):
-            pt = c.get("price_target")
-            calls.append({
-                "ticker": str(c["ticker"]).upper().strip()[:10],
-                "call": c["call"],
-                "price_target": float(pt) if pt is not None and str(pt).replace(".", "").isdigit() else None,
-                "reasoning": str(c.get("reasoning", ""))[:400],
-            })
+    seen_call_tickers: set[str] = set()
+    for c in result.get("calls", []) or []:
+        if not (isinstance(c, dict) and c.get("ticker") and c.get("call") in CALL_TYPES):
+            continue
+        ticker = _normalize_ticker(str(c["ticker"]))
+        if ticker is None or ticker in seen_call_tickers:
+            continue
+        seen_call_tickers.add(ticker)
+        price_target = _as_number(c.get("price_target"))
+        calls.append({
+            "ticker": ticker,
+            "call": c["call"],
+            "price_target": price_target if price_target is not None and price_target > 0 else None,
+            "reasoning": str(c.get("reasoning", ""))[:400],
+        })
 
     return {
         "stocks": stocks,
         "themes": themes,
         "calls": calls,
-        "summary": str(result.get("summary", ""))[:3000],
+        "summary": str(result.get("summary") or "")[:3000],
     }
 
 

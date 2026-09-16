@@ -12,7 +12,34 @@ import { getStockProfile, getStockFilings } from "@/lib/api";
 import { formatLargeNumber, formatRatio, formatPrice } from "@/lib/utils";
 import { StockPriceChart } from "@/components/StockPriceChart";
 import { MomentumHistoryChart } from "@/components/MomentumHistoryChart";
-import type { StockProfile, StockFiling } from "@/types";
+import type { StockProfile, StockFiling, CallType } from "@/types";
+
+const CALL_ORDER: CallType[] = ["buy", "hold", "watch", "avoid", "sell"];
+const CALL_STYLES: Record<CallType, string> = {
+  buy: "bg-green-500/10 text-green-400 border-green-500/20",
+  hold: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+  watch: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  avoid: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  sell: "bg-red-500/10 text-red-400 border-red-500/20",
+};
+
+function CallChip({ call, count }: { call: CallType; count?: number }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium capitalize ${CALL_STYLES[call]}`}>
+      {call}
+      {count !== undefined && <span className="tabular-nums opacity-80">{count}</span>}
+    </span>
+  );
+}
+
+function consensusLabel(value?: number | null): string {
+  if (value === undefined || value === null) return "—";
+  if (value >= 0.5) return "Strongly bullish";
+  if (value >= 0.15) return "Leaning bullish";
+  if (value > -0.15) return "Split";
+  if (value > -0.5) return "Leaning bearish";
+  return "Strongly bearish";
+}
 
 function filingPeriodLabel(f: StockFiling): string {
   if (f.period) return f.period;
@@ -125,6 +152,57 @@ export default function StockDetailPage() {
               <StatTile label="Price / Sales" value={formatRatio(profile.fundamentals.price_to_sales)} />
             </CardContent>
           </Card>
+
+          {profile.calls && profile.calls.latest.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Explicit Calls</CardTitle>
+                <CardDescription>
+                  Recommendations stated outright in the sources — not inferred from tone.
+                  {profile.calls.total > 0 && (
+                    <> Last {profile.calls.window_days} days: <span className="text-foreground">{consensusLabel(profile.calls.consensus)}</span> across {profile.calls.total}.</>
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {CALL_ORDER.filter((t) => profile.calls.counts[t] > 0).map((t) => (
+                    <CallChip key={t} call={t} count={profile.calls.counts[t]} />
+                  ))}
+                </div>
+                <ul className="space-y-3">
+                  {profile.calls.latest.map((c, i) => (
+                    <li key={i} className="text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <CallChip call={c.call} />
+                        {c.price_target != null && (
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            target {formatPrice(c.price_target, profile.price.currency)}
+                          </span>
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          {c.source_channel || c.source_type}
+                          {" · "}
+                          {new Date(c.called_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      {c.reasoning && <p className="text-muted-foreground mt-1 leading-snug">{c.reasoning}</p>}
+                      {c.source_title && (
+                        c.source_url ? (
+                          <a href={c.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:text-foreground hover:underline inline-flex items-center gap-1 mt-0.5">
+                            <ExternalLink className="h-3 w-3" />
+                            {c.source_title}
+                          </a>
+                        ) : (
+                          <p className="text-xs text-muted-foreground mt-0.5">{c.source_title}</p>
+                        )
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="pb-2">

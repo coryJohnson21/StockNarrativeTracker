@@ -6,10 +6,10 @@ import logging
 from datetime import datetime
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from app.database import AsyncSessionLocal
-from app.models.models import Source, Transcript, Stock, Theme, StockMention, ThemeMention
+from app.models.models import Source, Transcript, Stock, Theme, StockMention, ThemeMention, StockCall
 from app.services.youtube import download_audio, get_video_info, get_captions, parse_video_metadata
 from app.services.transcription import transcribe_audio
 from app.services.extraction import extract_from_transcript, extract_filing_details
@@ -38,6 +38,27 @@ async def _get_or_create_stock(db: AsyncSession, ticker: str, company: str) -> S
     elif company and not stock.company_name:
         stock.company_name = company
     return stock
+
+
+async def _store_calls(db: AsyncSession, source: Source, calls: list[dict], called_at: datetime) -> int:
+    """Persist a source's explicit recommendations, replacing any from a previous
+    processing run of the same source."""
+    await db.execute(delete(StockCall).where(StockCall.source_id == source.id))
+    stored = 0
+    for c in calls:
+        stock = await _get_or_create_stock(db, c["ticker"], "")
+        db.add(
+            StockCall(
+                source_id=source.id,
+                stock_id=stock.id,
+                call=c["call"],
+                price_target=c.get("price_target"),
+                reasoning=c.get("reasoning") or None,
+                called_at=called_at,
+            )
+        )
+        stored += 1
+    return stored
 
 
 async def _get_or_create_theme(db: AsyncSession, name: str) -> Theme:
@@ -280,6 +301,9 @@ async def _store_and_process(db: AsyncSession, source: Source, transcript_text: 
             is_self_mention=filer_ticker is not None and stock.ticker == filer_ticker,
         )
         db.add(mention)
+
+    # Step 4b: Store explicit recommendations
+    await _store_calls(db, source, extraction.get("calls", []), mentioned_at)
 
     # Step 5: Store theme mentions
     for theme_data in extraction["themes"]:

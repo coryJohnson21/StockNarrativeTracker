@@ -92,6 +92,26 @@ class StockMention(Base):
     stock = relationship("Stock", back_populates="mentions")
 
 
+class StockCall(Base):
+    """An explicit buy/sell/hold/avoid/watch recommendation a source made about a
+    stock, with the price target and reasoning if stated. One row per (source, stock)
+    so a channel's track record can be scored against realized forward returns."""
+    __tablename__ = "stock_calls"
+    __table_args__ = (UniqueConstraint("source_id", "stock_id", name="uq_stock_calls_source_stock"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_id = Column(UUID(as_uuid=True), ForeignKey("sources.id", ondelete="CASCADE"), nullable=False)
+    stock_id = Column(UUID(as_uuid=True), ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
+    call = Column(String(10), nullable=False)  # buy, sell, hold, avoid, watch
+    price_target = Column(Float)
+    reasoning = Column(Text)
+    called_at = Column(DateTime, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    source = relationship("Source")
+    stock = relationship("Stock")
+
+
 class ThemeMention(Base):
     __tablename__ = "theme_mentions"
 

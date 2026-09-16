@@ -99,6 +99,28 @@ export interface StockProfile {
     external: { mention_count: number; avg_sentiment: number; unique_sources: number };
   };
   narrative_summary?: string;
+  calls: StockCallSummary;
+}
+
+export type CallType = "buy" | "sell" | "hold" | "avoid" | "watch";
+
+export interface StockCall {
+  call: CallType;
+  price_target?: number | null;
+  reasoning?: string | null;
+  called_at: string;
+  source_title?: string | null;
+  source_type: string;
+  source_channel?: string | null;
+  source_url?: string | null;
+}
+
+export interface StockCallSummary {
+  window_days: number;
+  total: number;
+  counts: Record<CallType, number>;
+  consensus?: number | null;
+  latest: StockCall[];
 }
 
 export interface ThemeImpactEntry {
