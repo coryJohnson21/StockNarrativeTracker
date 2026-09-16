@@ -41,6 +41,12 @@ export interface StockTrending {
   computed_at: string;
 }
 
+export interface StockSearchResult {
+  ticker: string;
+  company_name?: string;
+  sector?: string;
+}
+
 export interface ThemeTrending {
   id: string;
   name: string;

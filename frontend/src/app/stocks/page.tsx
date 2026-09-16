@@ -6,6 +6,7 @@ import { TrendingUp, LayoutGrid, Landmark, Newspaper } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TrendingStocksTable } from "@/components/TrendingStocksTable";
+import { StockSearch } from "@/components/StockSearch";
 import type { SourceCategory, MediaChannel } from "@/lib/api";
 
 const CHANNELS: { key: MediaChannel | "all"; label: string }[] = [
@@ -37,14 +38,17 @@ function StocksPageContent() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <TrendingUp className="h-7 w-7 text-green-400" />
-          Trending Stocks
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Stocks ranked by narrative momentum — frequency, growth rate, sentiment, and cross-source mentions.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <TrendingUp className="h-7 w-7 text-green-400" />
+            Trending Stocks
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Stocks ranked by narrative momentum — frequency, growth rate, sentiment, and cross-source mentions.
+          </p>
+        </div>
+        <StockSearch />
       </div>
 
       <div className="flex items-center gap-2">

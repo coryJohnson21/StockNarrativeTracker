@@ -1,4 +1,4 @@
-import type { Source, StockTrending, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed } from "@/types";
+import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -100,6 +100,11 @@ export async function getTrendingStocks(params?: {
   if (params?.category) q.set("category", params.category);
   if (params?.channel) q.set("channel", params.channel);
   return apiFetch(`/api/stocks/trending?${q}`);
+}
+
+export async function searchStocks(q: string, limit = 8): Promise<{ stocks: StockSearchResult[] }> {
+  if (!q.trim()) return { stocks: [] };
+  return apiFetch(`/api/stocks/search?q=${encodeURIComponent(q)}&limit=${limit}`);
 }
 
 export async function getStockProfile(ticker: string): Promise<StockProfile> {

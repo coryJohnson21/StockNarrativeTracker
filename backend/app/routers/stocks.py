@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, or_
 from sqlalchemy.orm import selectinload
 from typing import Literal, Optional
 
@@ -122,6 +122,33 @@ async def get_trending_stocks(
         )
 
     return {"stocks": results, "total": total}
+
+
+@router.get("/search")
+async def search_stocks(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(8, le=20),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ticker/company-name lookup over tracked stocks, for jump-straight-to-stock search.
+    Not momentum-scored (unlike /trending) so newly-ingested stocks are findable immediately."""
+    pattern = f"%{q}%"
+    starts_with_ticker = Stock.ticker.ilike(f"{q}%")
+
+    stmt = (
+        select(Stock)
+        .where(or_(Stock.ticker.ilike(pattern), Stock.company_name.ilike(pattern)))
+        .order_by(desc(starts_with_ticker), Stock.ticker)
+        .limit(limit)
+    )
+    stocks = (await db.execute(stmt)).scalars().all()
+
+    return {
+        "stocks": [
+            {"ticker": s.ticker, "company_name": s.company_name, "sector": s.sector}
+            for s in stocks
+        ]
+    }
 
 
 @router.get("/{ticker}/mentions")
