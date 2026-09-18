@@ -125,10 +125,87 @@ export interface StockProfile {
   calls: StockCallSummary;
   narratives: StockNarratives;
   signals: StockSignals;
+  insiders: InsiderSummary;
+}
+
+export interface InsiderTransaction {
+  owner_name: string;
+  owner_role?: string | null;
+  transaction_date: string;
+  filed_at: string;
+  is_purchase: boolean;
+  shares: number;
+  price?: number | null;
+  value?: number | null;
+  shares_owned_after?: number | null;
+  is_10b5_1: boolean;
+  filing_url?: string | null;
+}
+
+export interface RecentInsiderTrade {
+  ticker: string;
+  company_name?: string | null;
+  owner_name: string;
+  owner_role?: string | null;
+  transaction_date: string;
+  filed_at: string;
+  is_purchase: boolean;
+  shares: number;
+  price?: number | null;
+  value: number;
+  is_10b5_1: boolean;
+  filing_url?: string | null;
+  /** How many Form 4 lines were collapsed into this one insider decision. */
+  lines: number;
+}
+
+export interface RecentInsiderTrades {
+  window_days: number;
+  include_institutions: boolean;
+  buys: RecentInsiderTrade[];
+  sells: RecentInsiderTrade[];
+}
+
+export interface InsiderClusterBuy {
+  ticker: string;
+  company_name?: string | null;
+  buyers: number;
+  value: number;
+  latest: string;
+}
+
+export interface InsiderOverview {
+  window_days: number;
+  include_institutions: boolean;
+  buys: number;
+  sells: number;
+  buy_value: number;
+  sell_value: number;
+  net_ratio: number | null;
+  stocks: number;
+  insiders: number;
+  cluster_buys: InsiderClusterBuy[];
+}
+
+export interface InsiderSummary {
+  window_days: number;
+  buys: number;
+  sells: number;
+  buy_value: number;
+  sell_value: number;
+  plan_sell_value: number;
+  net_value: number;
+  net_ratio: number | null;
+  discretionary_net_ratio: number | null;
+  distinct_buyers: number;
+  distinct_sellers: number;
+  cluster_buy: boolean;
+  cluster_buyers: number;
+  latest: InsiderTransaction[];
 }
 
 export interface StockSignal {
-  key: "management_vs_media" | "narrative_vs_price" | "crowding";
+  key: "management_vs_media" | "narrative_vs_price" | "crowding" | "insiders_vs_narrative";
   severity: "info" | "watch" | "alert";
   title: string;
   detail: string;
@@ -173,7 +250,7 @@ export interface BacktestBucket {
 }
 
 export interface FactorIC {
-  factor: "score" | "avg_sentiment" | "mention_count_7d" | "share_of_voice";
+  factor: "score" | "avg_sentiment" | "mention_count_7d" | "share_of_voice" | "insider_net_90d";
   ic: number | null;
   n: number;
   mean_daily_ic: number | null;

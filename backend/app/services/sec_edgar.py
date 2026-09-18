@@ -44,7 +44,7 @@ class FilingInfo(TypedDict):
     is_exhibit: bool
 
 
-def _raw_entries_since(entries: dict, since_date: str) -> List[dict]:
+def _raw_entries_since(entries: dict, since_date: str, forms_wanted: tuple = TRACKED_FORMS) -> List[dict]:
     forms = entries.get("form", [])
     return [
         {
@@ -54,8 +54,59 @@ def _raw_entries_since(entries: dict, since_date: str) -> List[dict]:
             "primary_document": entries["primaryDocument"][i],
         }
         for i in range(len(forms))
-        if forms[i] in TRACKED_FORMS and entries["filingDate"][i] >= since_date
+        if forms[i] in forms_wanted and entries["filingDate"][i] >= since_date
     ]
+
+
+async def _all_entries_since(client: httpx.AsyncClient, cik: str, since_date: str, forms_wanted: tuple) -> List[dict]:
+    """Entries from the submissions JSON's recent window, plus older shard files when
+    the window doesn't reach back to since_date."""
+    response = await _get(client, SUBMISSIONS_URL.format(cik=cik))
+    data = response.json()
+    recent = data["filings"]["recent"]
+    entries = _raw_entries_since(recent, since_date, forms_wanted)
+
+    oldest_in_recent = min(recent["filingDate"], default=None)
+    if oldest_in_recent and oldest_in_recent > since_date:
+        for shard in data["filings"].get("files", []):
+            if shard.get("filingTo") and shard["filingTo"] < since_date:
+                continue
+            try:
+                shard_response = await _get(client, f"https://data.sec.gov/submissions/{shard['name']}")
+            except httpx.HTTPStatusError:
+                continue
+            entries += _raw_entries_since(shard_response.json(), since_date, forms_wanted)
+    return entries
+
+
+INSIDER_FORMS = ("4", "4/A")
+
+
+async def get_form4_filings_since(client: httpx.AsyncClient, cik: str, since_date: str) -> List[dict]:
+    """Form 4 filings on or after since_date, each with the URL of its raw XML. The
+    submissions JSON lists the primary document under an XSL-render prefix
+    (xslF345X05/form4.xml); the bare filename is the XML itself."""
+    cik_short = str(int(cik))
+    filings = []
+    for entry in await _all_entries_since(client, cik, since_date, INSIDER_FORMS):
+        filename = entry["primary_document"].split("/")[-1]
+        if not filename.lower().endswith(".xml"):
+            continue
+        filings.append(
+            {
+                "form": entry["form"],
+                "filing_date": entry["filing_date"],
+                "accession_number": entry["accession_number"],
+                "document_url": DOC_URL.format(
+                    cik_short=cik_short, accession_nodash=entry["accession_number"].replace("-", ""), filename=filename
+                ),
+            }
+        )
+    return filings
+
+
+async def fetch_text(client: httpx.AsyncClient, url: str) -> str:
+    return (await _get(client, url)).text
 
 
 async def get_filings_since(

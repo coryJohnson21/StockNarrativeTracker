@@ -1,4 +1,4 @@
-import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, ThemeIndex, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed, ResearchStatus, BacktestResult, SourceReliability } from "@/types";
+import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, ThemeIndex, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed, ResearchStatus, BacktestResult, SourceReliability, RecentInsiderTrades, InsiderOverview } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -308,4 +308,29 @@ export async function recomputeSourceReliability(horizon = 20): Promise<{ channe
 
 export async function getDashboardStats(): Promise<DashboardStats> {
   return apiFetch("/api/dashboard/stats");
+}
+
+
+// --- Insiders ---
+
+export async function getRecentInsiderTrades(params?: {
+  days?: number;
+  limit?: number;
+  includeInstitutions?: boolean;
+}): Promise<RecentInsiderTrades> {
+  const q = new URLSearchParams();
+  if (params?.days) q.set("days", String(params.days));
+  if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.includeInstitutions === false) q.set("include_institutions", "false");
+  return apiFetch(`/api/insiders/recent?${q}`);
+}
+
+export async function getInsiderOverview(params?: {
+  days?: number;
+  includeInstitutions?: boolean;
+}): Promise<InsiderOverview> {
+  const q = new URLSearchParams();
+  if (params?.days) q.set("days", String(params.days));
+  if (params?.includeInstitutions === false) q.set("include_institutions", "false");
+  return apiFetch(`/api/insiders/overview?${q}`);
 }

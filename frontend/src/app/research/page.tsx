@@ -15,6 +15,7 @@ const FACTOR_LABELS: Record<FactorIC["factor"], string> = {
   avg_sentiment: "Sentiment",
   mention_count_7d: "Mentions (7d)",
   share_of_voice: "Share of voice",
+  insider_net_90d: "Insider net buying (90d)",
 };
 
 function pct(v: number | null | undefined, digits = 2): string {

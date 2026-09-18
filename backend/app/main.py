@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine, Base, AsyncSessionLocal
-from app.routers import ingest, stocks, themes, sources, sec, watchlist, podcasts, reddit, research
+from app.routers import ingest, stocks, themes, sources, sec, watchlist, podcasts, reddit, research, insiders
 from app.tasks.sec_scan import scan_all_sp500
 from app.tasks.podcast_poll import poll_all_feeds
 from app.tasks.reddit_poll import poll_all_subreddits
@@ -33,12 +33,18 @@ async def _seed_reddit_feeds() -> None:
 async def _periodic_sec_scan():
     # Sleep before the first run so dev-server reloads don't trigger an
     # immediate full S&P 500 scan; use the /api/sec/scan endpoint to test on demand.
+    from app.services.insiders import scan_insider_transactions
+    from app.tasks.sec_scan import recent_window_since
     while True:
         await asyncio.sleep(settings.sec_scan_interval_hours * 3600)
         try:
             await scan_all_sp500()
         except Exception:
             logger.exception("Periodic SEC scan failed")
+        try:
+            await scan_insider_transactions(recent_window_since(10))
+        except Exception:
+            logger.exception("Periodic insider scan failed")
 
 
 async def _periodic_podcast_poll():
@@ -141,6 +147,7 @@ app.include_router(watchlist.router, prefix="/api")
 app.include_router(podcasts.router, prefix="/api")
 app.include_router(reddit.router, prefix="/api")
 app.include_router(research.router, prefix="/api")
+app.include_router(insiders.router, prefix="/api")
 
 
 @app.get("/api/health")

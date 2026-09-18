@@ -16,7 +16,7 @@ from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Stock, StockMention, StockMomentum, StockPrice, MomentumSnapshot
+from app.models.models import Stock, StockMention, StockMomentum, StockPrice, MomentumSnapshot, InsiderTransaction
 from app.services import market_data
 from app.services.momentum import (
     MentionStats, _Universe, SELF_MENTION_WEIGHT, sentiment_to_label,
@@ -77,6 +77,49 @@ class MentionSeries:
         )
 
 
+INSIDER_WINDOW_DAYS = 90
+
+
+class InsiderSeries:
+    """One stock's open-market insider trades by *filing* date -- the day the market
+    could have known -- with prefix sums, so the trailing net-buying ratio as of
+    any day is O(log n). Scheduled 10b5-1 sales are excluded, as in the signal."""
+
+    def __init__(self, trades):
+        rows = sorted(trades, key=lambda t: t[0])  # (filed_at, is_purchase, value, is_plan)
+        self.dates = [r[0] for r in rows]
+        n = len(rows)
+        self.cum_buy = [0.0] * (n + 1)
+        self.cum_sell = [0.0] * (n + 1)
+        for i, (_, is_purchase, value, is_plan) in enumerate(rows):
+            v = float(value or 0.0)
+            self.cum_buy[i + 1] = self.cum_buy[i] + (v if is_purchase else 0.0)
+            self.cum_sell[i + 1] = self.cum_sell[i] + (0.0 if (is_purchase or is_plan) else v)
+
+    def net_ratio_as_of(self, day: date, window_days: int = INSIDER_WINDOW_DAYS) -> Optional[float]:
+        hi = bisect.bisect_right(self.dates, day)
+        lo = bisect.bisect_left(self.dates, day - timedelta(days=window_days))
+        buy = self.cum_buy[hi] - self.cum_buy[lo]
+        sell = self.cum_sell[hi] - self.cum_sell[lo]
+        total = buy + sell
+        return round((buy - sell) / total, 3) if total > 0 else None
+
+
+async def _load_insider_series(db: AsyncSession) -> dict:
+    rows = (
+        await db.execute(
+            select(
+                InsiderTransaction.stock_id, InsiderTransaction.filed_at, InsiderTransaction.is_purchase,
+                InsiderTransaction.value, InsiderTransaction.is_10b5_1,
+            ).where(InsiderTransaction.value.isnot(None))
+        )
+    ).all()
+    grouped: dict = defaultdict(list)
+    for sid, filed_at, is_purchase, value, is_plan in rows:
+        grouped[sid].append((filed_at, is_purchase, value, is_plan))
+    return {sid: InsiderSeries(trades) for sid, trades in grouped.items()}
+
+
 async def rebuild_momentum_snapshots(
     db: AsyncSession, since: Optional[date] = None, until: Optional[date] = None
 ) -> dict:
@@ -97,6 +140,7 @@ async def rebuild_momentum_snapshots(
     for r in rows:
         by_stock[r.stock_id].append((r.mentioned_at, r.sentiment_score, r.is_self_mention, r.source_id))
     series = {sid: MentionSeries(ms) for sid, ms in by_stock.items()}
+    insiders = await _load_insider_series(db)
 
     first_day = min(r.mentioned_at for r in rows).date()
     until = until or date.today()
@@ -123,6 +167,7 @@ async def rebuild_momentum_snapshots(
                         "unique_sources": st.unique_sources,
                         "share_of_voice": round(universe.share(st), 5),
                         "label": sentiment_to_label(st.avg_sentiment),
+                        "insider_net_90d": insiders[sid].net_ratio_as_of(day) if sid in insiders else None,
                     }
                 )
             days += 1
@@ -138,7 +183,10 @@ async def rebuild_momentum_snapshots(
 
 
 async def _upsert_snapshots(db: AsyncSession, values: list[dict]) -> int:
-    update_cols = ("score", "mention_count_7d", "mention_count_30d", "avg_sentiment", "unique_sources", "share_of_voice", "label")
+    update_cols = (
+        "score", "mention_count_7d", "mention_count_30d", "avg_sentiment", "unique_sources", "share_of_voice", "label",
+        "insider_net_90d",
+    )
     for i in range(0, len(values), _UPSERT_CHUNK):
         chunk = values[i:i + _UPSERT_CHUNK]
         stmt = pg_insert(MomentumSnapshot).values(chunk)
@@ -301,6 +349,7 @@ class Observation:
     share_of_voice: float
     ret: float
     excess: Optional[float]
+    insider_net_90d: Optional[float] = None
 
 
 def _pct(x: Optional[float]) -> Optional[float]:
@@ -341,8 +390,13 @@ def factor_ic(obs: list[Observation], getter, min_per_date: int = 5) -> dict:
     """Overall rank IC of a factor against excess (or raw) return, plus the mean of
     per-date cross-sectional ICs and its t-stat, which is the honest significance test:
     one lucky week shouldn't count as evidence."""
+    # A factor that is undefined for an observation (no insider traded, say) drops
+    # that observation for this factor only, rather than being scored as zero.
+    scored = [(o, getter(o)) for o in obs]
+    scored = [(o, v) for o, v in scored if v is not None]
+    obs = [o for o, _ in scored]
+    values = [float(v) for _, v in scored]
     target = [o.excess if o.excess is not None else o.ret for o in obs]
-    values = [getter(o) for o in obs]
     overall = spearman(values, target)
 
     by_date: dict = defaultdict(list)
@@ -375,6 +429,7 @@ FACTORS = {
     "avg_sentiment": lambda o: o.avg_sentiment,
     "mention_count_7d": lambda o: float(o.mention_count_7d),
     "share_of_voice": lambda o: o.share_of_voice,
+    "insider_net_90d": lambda o: o.insider_net_90d,
 }
 
 
@@ -428,6 +483,7 @@ async def run_backtest(db: AsyncSession, horizon: int = 20, buckets: int = 5, mi
                 stock_id=s.stock_id, date=s.date, score=s.score, avg_sentiment=s.avg_sentiment,
                 mention_count_7d=s.mention_count_7d, share_of_voice=s.share_of_voice,
                 ret=r, excess=(r - b) if b is not None else None,
+                insider_net_90d=s.insider_net_90d,
             )
         )
     return summarize_backtest(obs, horizon, buckets, min_mentions_7d, benchmark_available=bench is not None and len(bench) > 0)

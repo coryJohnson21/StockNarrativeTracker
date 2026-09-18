@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { TrendingUp, BarChart2, Layers, Upload, Database, Star, Rss, FlaskConical } from "lucide-react";
+import { TrendingUp, BarChart2, Layers, Upload, Database, Star, Rss, FlaskConical, UserRoundCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -10,6 +10,7 @@ const nav = [
   { href: "/watchlist", label: "Watchlist", icon: Star },
   { href: "/stocks", label: "Stocks", icon: TrendingUp },
   { href: "/themes", label: "Themes", icon: Layers },
+  { href: "/insiders", label: "Insiders", icon: UserRoundCheck },
   { href: "/subscriptions", label: "Subscriptions", icon: Rss },
   { href: "/research", label: "Research", icon: FlaskConical },
   { href: "/ingest", label: "Add Content", icon: Upload },

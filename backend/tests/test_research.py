@@ -153,12 +153,27 @@ def test_factor_ic_skips_thin_dates():
     assert ic["n_dates"] == 0 and ic["mean_daily_ic"] is None and ic["ic"] is None
 
 
+def test_factor_ic_drops_observations_where_the_factor_is_undefined():
+    # Only 3 of 6 stock-days have an insider factor; those 3 shouldn't be scored as 0.
+    obs = []
+    for k in range(6):
+        day = D0 + timedelta(days=k)
+        obs += [_obs(s, ret=0.0, excess=s * 0.001, day=day) for s in (1, 2, 3, 4, 5)]
+    for i, o in enumerate(obs):
+        o.insider_net_90d = None if i % 2 else 1.0 - o.score / 10
+    ic = factor_ic(obs, lambda o: o.insider_net_90d)
+    assert ic["n"] == len(obs) // 2
+    assert ic["ic"] is not None and ic["ic"] < 0  # constructed inverse relationship
+
+
 def test_summarize_backtest_shape_and_spread():
     obs = [_obs(s, ret=s / 1000, excess=s / 1000 - 0.03) for s in range(10, 110, 10)]
     out = summarize_backtest(obs, horizon=20, buckets=5, min_mentions_7d=1, benchmark_available=True)
     assert out["n_observations"] == 10 and out["n_dates"] == 1
     assert out["spread_excess_pct"] == pytest.approx(out["buckets"][-1]["mean_excess_pct"] - out["buckets"][0]["mean_excess_pct"])
-    assert {f["factor"] for f in out["factor_ic"]} == {"score", "avg_sentiment", "mention_count_7d", "share_of_voice"}
+    assert {f["factor"] for f in out["factor_ic"]} == {
+        "score", "avg_sentiment", "mention_count_7d", "share_of_voice", "insider_net_90d",
+    }
 
 
 def test_summarize_backtest_empty():
