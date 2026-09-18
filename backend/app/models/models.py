@@ -141,6 +141,35 @@ class SourceReliability(Base):
     computed_at = Column(DateTime, default=datetime.utcnow)
 
 
+class InsiderTransaction(Base):
+    """An open-market purchase or sale by an officer, director, or 10% holder,
+    from a Form 4. One row per transaction line; a filing can carry several."""
+    __tablename__ = "insider_transactions"
+    __table_args__ = (UniqueConstraint("accession_number", "seq", name="uq_insider_transactions_accession_seq"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    stock_id = Column(UUID(as_uuid=True), ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
+    accession_number = Column(String(25), nullable=False)
+    seq = Column(Integer, nullable=False)
+    filed_at = Column(Date, nullable=False, index=True)
+    transaction_date = Column(Date, nullable=False)
+    owner_name = Column(String(300), nullable=False)
+    owner_role = Column(String(300))
+    transaction_code = Column(String(2), nullable=False)  # P = purchase, S = sale
+    is_purchase = Column(Boolean, nullable=False)
+    shares = Column(Float, nullable=False)
+    price = Column(Float)
+    value = Column(Float)
+    shares_owned_after = Column(Float)
+    # True when the filer marked the trade as made under a pre-arranged 10b5-1
+    # plan -- scheduled, so it carries little information about conviction.
+    is_10b5_1 = Column(Boolean, nullable=False, default=False, server_default="false")
+    filing_url = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    stock = relationship("Stock")
+
+
 class StockPrice(Base):
     """Daily closing price, the ground truth every narrative signal is tested against."""
     __tablename__ = "stock_prices"
@@ -169,6 +198,10 @@ class MomentumSnapshot(Base):
     unique_sources = Column(Integer, nullable=False, default=0)
     share_of_voice = Column(Float, nullable=False, default=0.0)
     label = Column(String(20))
+    # Insider net buying over the trailing 90 days, by filing date (point in time):
+    # (buy $ - sell $) / (buy $ + sell $), open-market and non-plan trades only.
+    # NULL when no insider traded in the window.
+    insider_net_90d = Column(Float)
 
 
 class ThemeMention(Base):

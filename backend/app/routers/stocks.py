@@ -26,6 +26,7 @@ from app.services.momentum import (
 )
 from app.services import market_data
 from app.services.calls import get_stock_calls, get_stock_call_summary
+from app.services.insiders import get_stock_insider_summary, get_stock_insider_transactions
 from app.services.narratives import get_stock_narratives
 from app.services.signals import get_stock_signals
 from app.services.extraction import condense_company_description, generate_narrative_summary
@@ -275,6 +276,20 @@ async def get_stock_calls_endpoint(
     return {"ticker": stock.ticker, "calls": await get_stock_calls(db, stock.id, limit=limit)}
 
 
+@router.get("/{ticker}/insiders")
+async def get_stock_insiders_endpoint(
+    ticker: str,
+    limit: int = Query(50, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """Open-market insider purchases and sales from Form 4 filings, newest first."""
+    stock_result = await db.execute(select(Stock).where(Stock.ticker == ticker.upper()))
+    stock = stock_result.scalar_one_or_none()
+    if stock is None:
+        raise HTTPException(status_code=404, detail=f"{ticker.upper()} is not tracked")
+    return {"ticker": stock.ticker, "transactions": await get_stock_insider_transactions(db, stock.id, limit=limit)}
+
+
 @router.get("/{ticker}/price-history")
 async def get_stock_price_history(
     ticker: str,
@@ -345,6 +360,7 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
     call_summary = await get_stock_call_summary(db, stock.id)
     narratives = await get_stock_narratives(db, stock.id)
     signals = await get_stock_signals(db, stock, mention_breakdown, momentum)
+    insiders = await get_stock_insider_summary(db, stock.id)
 
     total_mentions = mention_breakdown["filing"]["mention_count"] + mention_breakdown["media"]["mention_count"]
 
@@ -396,4 +412,5 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
         "calls": call_summary,
         "narratives": narratives,
         "signals": signals,
+        "insiders": insiders,
     }

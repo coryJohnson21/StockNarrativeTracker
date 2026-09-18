@@ -9,6 +9,7 @@ from sqlalchemy import select, func, and_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Source, Stock, StockMention, StockMomentum
+from app.services.insiders import get_stock_insider_summary
 from app.services.momentum import FILING_SOURCE_TYPES
 from app.services.research import load_price_series
 
@@ -121,6 +122,57 @@ def crowding_signal(
     )
 
 
+INSIDER_MIN_BUYERS = 2
+INSIDER_MIN_SELLERS = 3
+INSIDER_BEARISH_MEDIA = -20.0
+INSIDER_BULLISH_MEDIA = 50.0
+
+
+def insider_vs_narrative_signal(
+    insiders: dict, media_sentiment: float, media_n: int, crowding_active: bool
+) -> Optional[dict]:
+    """Insiders trade on what they know; the media trades on what it hears. When
+    they point opposite ways, the insiders have the better record (Lakonishok &
+    Lee 2001; Cohen, Malloy & Pomorski 2012). Scheduled 10b5-1 sales are excluded
+    from the selling side -- diversification on a timetable isn't a view."""
+    buyers = insiders.get("distinct_buyers", 0)
+    sellers = insiders.get("distinct_sellers", 0)
+    net_value = insiders.get("net_value", 0.0)
+    discretionary_ratio = insiders.get("discretionary_net_ratio")
+    buy_value, sell_value = insiders.get("buy_value", 0.0), insiders.get("sell_value", 0.0)
+
+    if buyers >= INSIDER_MIN_BUYERS and net_value > 0 and media_n >= MIN_MENTIONS and media_sentiment <= INSIDER_BEARISH_MEDIA:
+        return _signal(
+            "insiders_vs_narrative", "alert",
+            "Insiders buying into a bearish narrative",
+            f"{buyers} insiders bought a net ${net_value:,.0f} of stock on the open market in the last "
+            f"{insiders.get('window_days', 90)} days while media sentiment sits at {media_sentiment:+.0f}. "
+            "The people with the best information are leaning against the story.",
+            distinct_buyers=buyers, net_value=round(net_value), media_sentiment=round(media_sentiment, 1),
+        )
+
+    bullish_crowd = crowding_active or (media_n >= MIN_MENTIONS and media_sentiment >= INSIDER_BULLISH_MEDIA)
+    if sellers >= INSIDER_MIN_SELLERS and discretionary_ratio is not None and discretionary_ratio < -0.5 and bullish_crowd:
+        return _signal(
+            "insiders_vs_narrative", "alert",
+            "Insiders selling into a bullish narrative",
+            f"{sellers} insiders sold ${sell_value:,.0f} against ${buy_value:,.0f} bought in the last "
+            f"{insiders.get('window_days', 90)} days -- and that excludes scheduled 10b5-1 sales -- while coverage is "
+            f"{'crowded and ' if crowding_active else ''}bullish. Management is taking the other side of the crowd.",
+            distinct_sellers=sellers, discretionary_net_ratio=discretionary_ratio, media_sentiment=round(media_sentiment, 1),
+        )
+
+    if insiders.get("cluster_buy"):
+        return _signal(
+            "insiders_vs_narrative", "watch",
+            "Cluster buying by insiders",
+            f"{insiders.get('cluster_buyers')} different insiders made unscheduled open-market purchases in the last "
+            f"{30} days. Several independent buyers at once is the insider pattern with the strongest forward record.",
+            cluster_buyers=insiders.get("cluster_buyers"), net_value=round(net_value),
+        )
+    return None
+
+
 async def _sentiment_window(db: AsyncSession, stock_id, start: datetime, end: datetime) -> tuple[Optional[float], int]:
     row = (
         await db.execute(
@@ -173,20 +225,23 @@ async def get_stock_signals(db: AsyncSession, stock: Stock, mention_breakdown: d
     price_return = series.trailing_return(PRICE_WINDOW_TRADING_DAYS) if series is not None else None
 
     attention_pct = await _attention_percentile(db, stock.id)
+    insiders = await get_stock_insider_summary(db, stock.id, latest=0)
 
     filing, media = mention_breakdown["filing"], mention_breakdown["media"]
+    crowding = crowding_signal(
+        attention_pct,
+        momentum.avg_sentiment if momentum else 0.0,
+        momentum.novelty_7d if momentum else None,
+        momentum.mention_count_7d if momentum else 0,
+    )
     signals = [
         s for s in (
             management_vs_media_signal(
                 filing["avg_sentiment"], filing["mention_count"], media["avg_sentiment"], media["mention_count"], guidance,
             ),
             narrative_vs_price_signal(recent_sent, recent_n, prior_sent, prior_n, price_return),
-            crowding_signal(
-                attention_pct,
-                momentum.avg_sentiment if momentum else 0.0,
-                momentum.novelty_7d if momentum else None,
-                momentum.mention_count_7d if momentum else 0,
-            ),
+            crowding,
+            insider_vs_narrative_signal(insiders, media["avg_sentiment"], media["mention_count"], crowding is not None),
         )
         if s is not None
     ]
@@ -202,5 +257,8 @@ async def get_stock_signals(db: AsyncSession, stock: Stock, mention_breakdown: d
             "price_return_20d_pct": round(price_return * 100, 2) if price_return is not None else None,
             "attention_percentile": round(attention_pct, 3) if attention_pct is not None else None,
             "novelty_7d": momentum.novelty_7d if momentum else None,
+            "insider_net_ratio_90d": insiders.get("net_ratio"),
+            "insider_buyers_90d": insiders.get("distinct_buyers"),
+            "insider_sellers_90d": insiders.get("distinct_sellers"),
         },
     }

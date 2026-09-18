@@ -174,6 +174,68 @@ export default function StockDetailPage() {
             </CardContent>
           </Card>
 
+          {profile.insiders && (profile.insiders.buys > 0 || profile.insiders.sells > 0) && (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <CardTitle className="text-base">Insider Activity</CardTitle>
+                    <CardDescription>
+                      Open-market purchases and sales by officers, directors, and 10% holders (Form 4), last {profile.insiders.window_days} days.
+                      Scheduled 10b5-1 sales are shown but excluded from the signal.
+                    </CardDescription>
+                  </div>
+                  {profile.insiders.cluster_buy && (
+                    <span className="inline-flex items-center rounded-full border border-green-500/30 bg-green-500/10 px-2.5 py-0.5 text-xs font-medium text-green-400">
+                      Cluster buy · {profile.insiders.cluster_buyers} insiders
+                    </span>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Bought</p>
+                    <p className="text-xl font-semibold tabular-nums text-green-400">${formatLargeNumber(Math.round(profile.insiders.buy_value))}</p>
+                    <p className="text-xs text-muted-foreground">{profile.insiders.buys} trade{profile.insiders.buys === 1 ? "" : "s"} · {profile.insiders.distinct_buyers} insider{profile.insiders.distinct_buyers === 1 ? "" : "s"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Sold</p>
+                    <p className="text-xl font-semibold tabular-nums text-red-400">${formatLargeNumber(Math.round(profile.insiders.sell_value))}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {profile.insiders.sells} trade{profile.insiders.sells === 1 ? "" : "s"} · {profile.insiders.distinct_sellers} insider{profile.insiders.distinct_sellers === 1 ? "" : "s"}
+                      {profile.insiders.plan_sell_value > 0 && <> · ${formatLargeNumber(Math.round(profile.insiders.plan_sell_value))} scheduled</>}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Net (ex-plan)</p>
+                    <p className={`text-xl font-semibold tabular-nums ${(profile.insiders.discretionary_net_ratio ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {profile.insiders.discretionary_net_ratio === null ? "—" : `${profile.insiders.discretionary_net_ratio >= 0 ? "+" : ""}${(profile.insiders.discretionary_net_ratio * 100).toFixed(0)}%`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">+100% all buying · −100% all selling</p>
+                  </div>
+                </div>
+                <ul className="space-y-2 pt-2 border-t">
+                  {profile.insiders.latest.map((t, i) => (
+                    <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+                      <span className={`inline-flex w-10 justify-center rounded-full px-1.5 py-0.5 text-[11px] font-medium ${t.is_purchase ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
+                        {t.is_purchase ? "Buy" : "Sell"}
+                      </span>
+                      <span className="text-xs text-muted-foreground tabular-nums">{new Date(t.transaction_date).toLocaleDateString()}</span>
+                      <span className="font-medium">{t.owner_name}</span>
+                      {t.owner_role && <span className="text-xs text-muted-foreground">{t.owner_role}</span>}
+                      <span className="tabular-nums text-muted-foreground ml-auto">
+                        {formatLargeNumber(t.shares)} sh{t.price != null && ` @ ${formatPrice(t.price, profile.price.currency)}`}
+                        {t.value != null && <span className="text-foreground"> = ${formatLargeNumber(Math.round(t.value))}</span>}
+                      </span>
+                      {t.is_10b5_1 && <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">10b5-1 plan</span>}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
           {profile.narratives && profile.narratives.embedded_count > 0 && (
             <Card>
               <CardHeader className="pb-2">

@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowRight, TrendingUp, Layers, Upload, Landmark, Newspaper } from "lucide-react";
+import { ArrowRight, TrendingUp, Layers, Upload, Landmark, Newspaper, UserRoundCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatsCards } from "@/components/StatsCards";
 import { TrendingStocksTable } from "@/components/TrendingStocksTable";
 import { TrendingThemesTable } from "@/components/TrendingThemesTable";
+import { RecentInsiderTrades } from "@/components/RecentInsiderTrades";
 import type { MediaChannel } from "@/lib/api";
 
 const CHANNELS: { key: MediaChannel | "all"; label: string }[] = [
@@ -135,6 +136,59 @@ function MediaSection() {
   );
 }
 
+
+const INSIDER_WINDOW_DAYS = 30;
+
+function InsiderSection() {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <UserRoundCheck className="h-5 w-5 text-amber-400" />
+        <div className="flex-1">
+          <h2 className="text-lg font-semibold leading-tight">Insider Activity</h2>
+          <p className="text-xs text-muted-foreground">
+            Largest open-market buys and sells by officers, directors, and 10% holders (Form 4), last {INSIDER_WINDOW_DAYS} days.
+            Buys and sells are ranked separately — a routine sale at a mega-cap dwarfs almost any purchase.
+          </p>
+        </div>
+        <Button variant="ghost" size="sm" asChild>
+          <Link href="/insiders" className="text-xs text-muted-foreground gap-1 shrink-0">
+            View all <ArrowRight className="h-3 w-3" />
+          </Link>
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-400">
+                Buys
+              </span>
+              Biggest Insider Purchases
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <RecentInsiderTrades side="buys" days={INSIDER_WINDOW_DAYS} limit={10} />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400">
+                Sells
+              </span>
+              Biggest Insider Sales
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <RecentInsiderTrades side="sells" days={INSIDER_WINDOW_DAYS} limit={10} />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   return (
     <div className="space-y-8">
@@ -159,6 +213,7 @@ export default function DashboardPage() {
 
       <FilingSection />
       <MediaSection />
+      <InsiderSection />
     </div>
   );
 }
