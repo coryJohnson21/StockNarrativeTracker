@@ -170,6 +170,12 @@ async def download_audio(url: str, output_path: str) -> str:
         "outtmpl": output_path,
         "quiet": True,
         "no_warnings": True,
+        # YouTube's CDN stalls mid-stream now and then; yt-dlp's defaults (20s
+        # socket timeout, 10 retries on fragments but few on the whole download)
+        # turned those stalls into "read operation timed out" failures.
+        "socket_timeout": 60,
+        "retries": 5,
+        "fragment_retries": 10,
         "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
     }
 
