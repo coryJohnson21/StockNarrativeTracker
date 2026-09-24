@@ -22,6 +22,16 @@ from app.services.extraction import _as_number, _normalize_ticker, _sanitize_ext
         ("NEX", "NEE"),
         ("FPL", "NEE"),
         ("TWL", "WULF"),
+        # Company names GPT emits in the ticker slot for real listed companies.
+        # Without these each one creates a second, priceless stocks row.
+        ("LILY", "LLY"),
+        ("lily", "LLY"),
+        ("ELILILLY", "LLY"),
+        ("AMEX", "AXP"),
+        ("TSMC", "TSM"),
+        ("REDDIT", "RDDT"),
+        ("NEBIUS", "NBIS"),
+        # Genuinely private: no real symbol to map to, so it passes through.
         ("OPENAI", "OPENAI"),
         ("ABC123", "ABC123"),
     ],
@@ -135,3 +145,10 @@ def test_sanitize_clamps_and_coerces_sentiment():
 def test_sanitize_tolerates_missing_and_null_sections():
     result = _sanitize_extraction({"stocks": None, "summary": None})
     assert result == {"stocks": [], "themes": [], "calls": [], "summary": ""}
+
+
+def test_aliases_do_not_shadow_real_tickers():
+    """Each alias target is a real symbol that must still normalize to itself, and
+    SPCE stays Virgin Galactic rather than being pulled toward SpaceX."""
+    for real in ("LLY", "AXP", "TSM", "RDDT", "NBIS", "SPCE", "NVDA"):
+        assert _normalize_ticker(real) == real

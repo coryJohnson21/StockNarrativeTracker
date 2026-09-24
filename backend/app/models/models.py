@@ -53,6 +53,11 @@ class Stock(Base):
     company_name = Column(Text)
     sector = Column(Text)
     is_public = Column(Boolean, nullable=True)
+    # Whether this ticker resolves to a real tradeable security (services/symbols.py):
+    # "ok", "unknown" (no such symbol -- private company or a hallucinated ticker),
+    # "mismatch" (resolves to an index/ECN quote, not a company). NULL = never checked.
+    symbol_status = Column(String(10), nullable=True, index=True)
+    symbol_checked_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     mentions = relationship("StockMention", back_populates="stock", cascade="all, delete-orphan")

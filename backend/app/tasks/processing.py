@@ -13,6 +13,7 @@ from app.models.models import Source, Transcript, Stock, Theme, StockMention, Th
 from app.services.youtube import download_audio, get_video_info, get_captions, parse_video_metadata
 from app.services.transcription import transcribe_audio
 from app.services.extraction import extract_from_transcript, extract_filing_details
+from app.services.symbols import resolve_symbol
 from app.services.embeddings import generate_embedding
 from app.services.narratives import embed_and_score_mentions
 from app.services.momentum import refresh_stock_momentum, refresh_theme_momentum
@@ -34,6 +35,17 @@ async def _get_or_create_stock(db: AsyncSession, ticker: str, company: str) -> S
     stock = result.scalar_one_or_none()
     if stock is None:
         stock = Stock(ticker=ticker, company_name=company)
+        # Check the symbol once, when the row is first created. GPT regularly emits
+        # a company name ("LILY") or an acronym that is not a company at all ("FERC",
+        # "AWS") in the ticker slot; recording the verdict here keeps those out of
+        # trending and price refreshes instead of leaving a permanently unpriceable
+        # row behind. A failed lookup leaves it NULL to be retried later.
+        verdict = await resolve_symbol(ticker)
+        if verdict is not None:
+            stock.symbol_status = verdict["verdict"]
+            stock.symbol_checked_at = datetime.utcnow()
+            if verdict["verdict"] != "ok":
+                logger.info("ticker %s did not resolve (%s)", ticker, verdict["verdict"])
         db.add(stock)
         await db.flush()
     elif company and not stock.company_name:

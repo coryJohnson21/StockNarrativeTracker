@@ -28,6 +28,16 @@ _TICKER_ALIASES: dict[str, str] = {
     "NEX": "NEE",
     "FPL": "NEE",
     "TWL": "WULF",
+    # Company names GPT emits as if they were symbols. Each of these is a real
+    # US-listed company whose actual ticker is nothing like its name, so without
+    # an alias the extraction creates a second, priceless row beside the good one.
+    "LILY": "LLY",
+    "ELILILLY": "LLY",
+    "AMEX": "AXP",
+    "AMERICANEXPRESS": "AXP",
+    "TSMC": "TSM",
+    "REDDIT": "RDDT",
+    "NEBIUS": "NBIS",
 }
 
 _INDEX_RE = re.compile(
