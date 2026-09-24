@@ -26,6 +26,18 @@ class Settings(BaseSettings):
     reddit_client_id: str = ""
     reddit_client_secret: str = ""
 
+    @property
+    def has_openai(self) -> bool:
+        """Whether an OpenAI key is configured at all.
+
+        A deployment can be run with the key deliberately left out -- a read-only
+        instance serving already-ingested data can then spend nothing, because
+        there is no key present to spend, rather than relying on every calling
+        path being blocked. Features that need the API check this and skip
+        themselves instead of raising, so a missing key costs some AI-written
+        prose rather than the whole page."""
+        return bool(self.openai_api_key.strip())
+
     class Config:
         env_file = ".env"
         extra = "ignore"

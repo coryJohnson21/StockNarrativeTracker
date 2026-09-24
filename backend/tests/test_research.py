@@ -272,3 +272,15 @@ def test_rsi_is_bounded_and_rejects_nonsense_periods():
                      111, 115, 113, 118, 117, 120]).rsi(14)
     assert value is not None and 0.0 <= value <= 100.0
     assert _series([100 + i for i in range(30)]).rsi(0) is None
+
+
+# --- optional OpenAI ---
+
+def test_has_openai_reflects_whether_a_key_is_configured():
+    """A deployment can be run with no key on purpose, so that a read-only instance
+    cannot spend anything. Features that need the API branch on this."""
+    from app.config import Settings
+
+    assert Settings(openai_api_key="").has_openai is False
+    assert Settings(openai_api_key="   ").has_openai is False
+    assert Settings(openai_api_key="sk-something").has_openai is True

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, or_
@@ -27,10 +29,13 @@ from app.services.momentum import (
 from app.services import market_data
 from app.services.calls import get_stock_calls, get_stock_call_summary
 from app.services.insiders import get_stock_insider_summary, get_stock_insider_transactions
+from app.config import settings
 from app.services.research import load_rsi
 from app.services.narratives import get_stock_narratives
 from app.services.signals import get_stock_signals
 from app.services.extraction import condense_company_description, generate_narrative_summary
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
 
@@ -352,13 +357,21 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
 
     if profile is not None:
         description = profile.description
-    elif market and market.get("business_summary"):
-        description = await condense_company_description(
-            stock.company_name or stock.ticker, market["business_summary"]
-        )
-        profile = StockProfile(stock_id=stock.id, description=description)
-        db.add(profile)
-        await db.commit()
+    elif market and market.get("business_summary") and settings.has_openai:
+        # Without a key this stays None and the page simply omits the description
+        # rather than failing: everything else here comes from the database.
+        try:
+            description = await condense_company_description(
+                stock.company_name or stock.ticker, market["business_summary"]
+            )
+        except Exception:
+            # OpenAI down, key rejected, rate limit exhausted -- none of which are
+            # reasons to fail a page whose every other number is already stored.
+            logger.exception("Description generation failed for %s", stock.ticker)
+        else:
+            profile = StockProfile(stock_id=stock.id, description=description)
+            db.add(profile)
+            await db.commit()
 
     momentum_result = await db.execute(select(StockMomentum).where(StockMomentum.stock_id == stock.id))
     momentum = momentum_result.scalar_one_or_none()
@@ -379,23 +392,36 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
 
         if narrative is not None and narrative.mention_count_snapshot == total_mentions:
             narrative_summary = narrative.summary
+        elif not settings.has_openai:
+            # Serve a stale summary if one exists -- out of date beats absent -- and
+            # otherwise leave it unset rather than erroring on a read.
+            narrative_summary = narrative.summary if narrative is not None else None
         else:
             filing_contexts = await get_stock_mention_contexts(db, stock.id, "filing")
             media_contexts = await get_stock_mention_contexts(db, stock.id, "media")
-            narrative_summary = await generate_narrative_summary(
-                stock.ticker,
-                stock.company_name or stock.ticker,
-                mention_breakdown["filing"]["avg_sentiment"],
-                filing_contexts,
-                mention_breakdown["media"]["avg_sentiment"],
-                media_contexts,
-            )
-            if narrative is None:
-                narrative = StockNarrative(stock_id=stock.id)
-                db.add(narrative)
-            narrative.summary = narrative_summary
-            narrative.mention_count_snapshot = total_mentions
-            await db.commit()
+            try:
+                narrative_summary = await generate_narrative_summary(
+                    stock.ticker,
+                    stock.company_name or stock.ticker,
+                    mention_breakdown["filing"]["avg_sentiment"],
+                    filing_contexts,
+                    mention_breakdown["media"]["avg_sentiment"],
+                    media_contexts,
+                )
+            except Exception:
+                # Serve the previous summary if there is one, stale snapshot and all,
+                # but do NOT write it back: stamping it with the current mention count
+                # would cache the old text as if it were current and stop it ever
+                # regenerating once the API is healthy again.
+                logger.exception("Narrative generation failed for %s", stock.ticker)
+                narrative_summary = narrative.summary if narrative is not None else None
+            else:
+                if narrative is None:
+                    narrative = StockNarrative(stock_id=stock.id)
+                    db.add(narrative)
+                narrative.summary = narrative_summary
+                narrative.mention_count_snapshot = total_mentions
+                await db.commit()
 
     return {
         "ticker": stock.ticker,
