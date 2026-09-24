@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { FlaskConical, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { Bar, BarChart, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { backfillMentionEmbeddings, getBacktest, getResearchStatus, getSourceReliability, recomputeSourceReliability, refreshResearch } from "@/lib/api";
+import { backfillMentionEmbeddings, getBacktest, getPodcastFeeds, getResearchStatus, getSourceReliability, recomputeSourceReliability, refreshResearch } from "@/lib/api";
 import type { BacktestResult, FactorIC, ResearchStatus, SourceReliability } from "@/types";
 
 const HORIZONS = [5, 20, 60];
@@ -34,7 +35,7 @@ function weightClass(w: number): string {
   return "text-muted-foreground";
 }
 
-function TrackRecord({ channels, onRecompute, recomputing }: { channels: SourceReliability[]; onRecompute: () => void; recomputing: boolean }) {
+function TrackRecord({ channels, feedIds, onRecompute, recomputing }: { channels: SourceReliability[]; feedIds: Record<string, string>; onRecompute: () => void; recomputing: boolean }) {
   const scored = channels.filter((c) => c.n_scored > 0);
   const horizon = channels[0]?.horizon ?? 20;
   return (
@@ -46,7 +47,8 @@ function TrackRecord({ channels, onRecompute, recomputing }: { channels: SourceR
             <CardDescription>
               Each channel&apos;s explicit buy/sell/avoid calls judged against SPY over the next {horizon} trading days.
               The weight multiplies that channel&apos;s mentions in the live momentum score — 1.0 is unknown or a coin flip,
-              and a handful of lucky calls barely moves it.
+              and a handful of lucky calls barely moves it. Open a subscribed channel to see the individual calls behind
+              its record.
             </CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={onRecompute} disabled={recomputing} className="shrink-0">
@@ -76,7 +78,11 @@ function TrackRecord({ channels, onRecompute, recomputing }: { channels: SourceR
                 {[...scored, ...channels.filter((c) => c.n_scored === 0)].map((c) => (
                   <tr key={c.channel_key} className="border-b border-border/50">
                     <td className="py-1.5">
-                      <span className="text-foreground">{c.channel_key}</span>
+                      {feedIds[c.channel_key] ? (
+                        <Link href={`/subscriptions/${feedIds[c.channel_key]}`} className="text-foreground hover:text-primary">{c.channel_key}</Link>
+                      ) : (
+                        <span className="text-foreground">{c.channel_key}</span>
+                      )}
                       {c.source_type && c.source_type !== c.channel_key && <span className="text-muted-foreground ml-1.5">{c.source_type}</span>}
                     </td>
                     <td className="py-1.5 text-right text-muted-foreground">{c.n_calls}</td>
@@ -110,6 +116,7 @@ export default function ResearchPage() {
   const [minMentions, setMinMentions] = useState(1);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [channels, setChannels] = useState<SourceReliability[]>([]);
+  const [feedIds, setFeedIds] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [recomputing, setRecomputing] = useState(false);
@@ -131,14 +138,18 @@ export default function ResearchPage() {
     setLoading(true);
     setError(null);
     try {
-      const [s, r, rel] = await Promise.all([
+      const [s, r, rel, feeds] = await Promise.all([
         getResearchStatus(),
         getBacktest({ horizon, min_mentions_7d: minMentions }),
         getSourceReliability(),
+        // A channel_key is a feed's label, so this maps the ones that are subscribed
+        // back to the page holding their per-call detail.
+        getPodcastFeeds().catch(() => ({ feeds: [] })),
       ]);
       setStatus(s);
       setResult(r);
       setChannels(rel.channels);
+      setFeedIds(Object.fromEntries(feeds.feeds.map((f) => [f.label, f.id])));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load research data");
     } finally {
@@ -391,7 +402,7 @@ export default function ResearchPage() {
             </div>
           )}
 
-          <TrackRecord channels={channels} onRecompute={handleRecompute} recomputing={recomputing} />
+          <TrackRecord channels={channels} feedIds={feedIds} onRecompute={handleRecompute} recomputing={recomputing} />
         </>
       )}
     </div>
