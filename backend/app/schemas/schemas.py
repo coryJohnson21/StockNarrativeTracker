@@ -59,6 +59,9 @@ class StockMomentumResponse(BaseModel):
     company_name: Optional[str]
     sector: Optional[str]
     is_public: Optional[bool] = None
+    # "ok" | "unknown" | "mismatch" | None (never checked) -- see services/symbols.py.
+    # Anything but "ok"/None names something with no tradeable US symbol behind it.
+    symbol_status: Optional[str] = None
     score: float
     mention_count: int
     mention_count_7d: int
@@ -72,6 +75,9 @@ class StockMomentumResponse(BaseModel):
     current_price: Optional[float] = None
     market_cap: Optional[float] = None
     novelty_7d: Optional[float] = None
+    # Wilder's 14-period RSI on daily closes, 0-100. None when the stock has too
+    # little price history (or no tradeable symbol) to compute one.
+    rsi_14: Optional[float] = None
     computed_at: datetime
 
     @computed_field
@@ -237,6 +243,43 @@ class RedditFeedResponse(BaseModel):
 
 class RedditFeedListResponse(BaseModel):
     feeds: List[RedditFeedResponse]
+
+
+class RedditPostResponse(BaseModel):
+    """One ingested post on a subreddit's landing page. The AI summary rides along
+    so the list can say what each post was about without a fetch per row."""
+    id: UUID
+    title: Optional[str]
+    url: Optional[str]
+    published_at: Optional[datetime]
+    created_at: Optional[datetime]
+    status: str
+    error_message: Optional[str]
+    summary: Optional[str] = None
+
+
+class RedditTopTicker(BaseModel):
+    """A ticker ranked by how often a subreddit's posts mentioned it."""
+    ticker: str
+    company_name: Optional[str] = None
+    symbol_status: Optional[str] = None
+    mention_count: int
+    unique_posts: int
+    avg_sentiment: Optional[float] = None
+
+
+class RedditFeedDetailResponse(RedditFeedResponse):
+    posts: List[RedditPostResponse]
+    top_tickers: List[RedditTopTicker]
+
+
+class RedditOverviewResponse(BaseModel):
+    """The multi-feed Reddit landing page: every subscribed subreddit plus what
+    Reddit as a whole has been talking about lately."""
+    feeds: List[RedditFeedResponse]
+    total_posts: int
+    top_tickers_7d: List[RedditTopTicker]
+    trailing_days: int
 
 
 # --- Dashboard Stats ---

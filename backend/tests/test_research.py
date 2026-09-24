@@ -85,6 +85,33 @@ def test_forward_return_none_when_unrealized_or_gap():
     assert ps.forward_return(date(2026, 7, 1), 1) is None  # after the series ends
 
 
+def test_return_since_runs_to_the_latest_close():
+    ps = _prices(date(2026, 6, 1), [100, 101, 102, 103, 104, 110, 120])
+    ret, as_of, days = ps.return_since(date(2026, 6, 1))
+    assert ret == pytest.approx(0.20)          # 100 -> 120, the last close we hold
+    assert as_of == date(2026, 6, 9)
+    assert days == 6
+
+
+def test_return_since_shares_the_entry_rule_with_forward_return():
+    ps = _prices(date(2026, 6, 1), [100, 101, 102, 103, 104, 110])
+    # Saturday June 6 enters Monday June 8 at 110, same as forward_return.
+    ret, _, days = ps.return_since(date(2026, 6, 6))
+    assert ret == pytest.approx(0.0)
+    assert days == 0
+    assert ps.return_since(date(2026, 5, 1)) is None    # entry 31 days late -> gap
+    assert ps.return_since(date(2026, 7, 1)) is None    # after the series ends
+
+
+def test_return_since_is_available_before_a_horizon_completes():
+    ps = _prices(date(2026, 6, 1), [100, 101, 102])
+    # Nothing scorable over 5 days yet, but where it stands today is known.
+    assert ps.forward_return(date(2026, 6, 1), 5) is None
+    ret, _, days = ps.return_since(date(2026, 6, 1))
+    assert ret == pytest.approx(0.02)
+    assert days == 2
+
+
 # --- rank statistics --------------------------------------------------------
 
 
@@ -179,3 +206,69 @@ def test_summarize_backtest_shape_and_spread():
 def test_summarize_backtest_empty():
     out = summarize_backtest([], horizon=5, buckets=5, min_mentions_7d=1, benchmark_available=False)
     assert out["n_observations"] == 0 and out["buckets"] == [] and out["spread_excess_pct"] is None
+
+
+# --- RSI (Wilder) ---
+
+def _series(closes: list[float]):
+    """A PriceSeries over consecutive days, for the price-shape tests below."""
+    from datetime import date, timedelta
+
+    from app.services.research import PriceSeries
+
+    return PriceSeries([(date(2024, 1, 1) + timedelta(days=i), c) for i, c in enumerate(closes)])
+
+
+# Wilder's own worked example from New Concepts in Technical Trading Systems --
+# the reference vector every charting package is checked against.
+WILDER_CLOSES = [
+    44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.10, 45.42,
+    45.84, 46.08, 45.89, 46.03, 45.61, 46.28, 46.28,
+]
+
+
+def test_rsi_matches_wilders_published_example():
+    assert _series(WILDER_CLOSES).rsi(14) == 70.5
+
+
+def test_rsi_uses_wilder_smoothing_not_a_span_14_ema():
+    """alpha = 1/14, not 2/15. A span-14 EMA gives a visibly different number, and
+    the difference is enough to move a reading across the 70 line."""
+    closes = WILDER_CLOSES + [46.00, 46.03, 46.41, 46.22, 45.64]
+    wilder = _series(closes).rsi(14)
+
+    deltas = [b - a for a, b in zip(closes, closes[1:])]
+    alpha = 2 / 15  # the wrong smoothing
+    avg_gain = avg_loss = None
+    for d in deltas:
+        gain, loss = max(d, 0.0), max(-d, 0.0)
+        avg_gain = gain if avg_gain is None else avg_gain + alpha * (gain - avg_gain)
+        avg_loss = loss if avg_loss is None else avg_loss + alpha * (loss - avg_loss)
+    ema_version = round(100 - 100 / (1 + avg_gain / avg_loss), 1)
+
+    assert wilder != ema_version
+
+
+def test_rsi_needs_one_more_close_than_periods():
+    """n deltas require n+1 closes; below that there is no seed to smooth from."""
+    assert _series([100 + i for i in range(14)]).rsi(14) is None
+    assert _series([100 + i for i in range(15)]).rsi(14) is not None
+
+
+def test_rsi_saturates_without_dividing_by_zero():
+    """An all-gains window has no downside to divide by -- 100 by definition."""
+    assert _series([100 + i for i in range(30)]).rsi(14) == 100.0
+    assert _series([200 - i for i in range(30)]).rsi(14) == 0.0
+
+
+def test_rsi_of_a_flat_series_is_neutral():
+    """No gains and no losses is 0/0. Report the neutral midpoint rather than
+    inheriting the all-gains branch's 100."""
+    assert _series([100.0] * 30).rsi(14) == 50.0
+
+
+def test_rsi_is_bounded_and_rejects_nonsense_periods():
+    value = _series([100, 102, 101, 105, 103, 108, 107, 110, 109, 112,
+                     111, 115, 113, 118, 117, 120]).rsi(14)
+    assert value is not None and 0.0 <= value <= 100.0
+    assert _series([100 + i for i in range(30)]).rsi(0) is None

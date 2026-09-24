@@ -6,6 +6,8 @@ import { Loader2, TrendingUp } from "lucide-react";
 import { SentimentBadge } from "./SentimentBadge";
 import { SignalChip } from "./SignalChip";
 import { SortableHeader } from "./SortableHeader";
+import { SymbolStatusBadge } from "./SymbolStatusBadge";
+import { RsiValue } from "./RsiValue";
 import { getTrendingStocks, type SourceCategory, type MediaChannel } from "@/lib/api";
 import { formatPrice, formatLargeNumber } from "@/lib/utils";
 import type { StockTrending } from "@/types";
@@ -23,7 +25,8 @@ type SortKey =
   | "score"
   | "avg_sentiment"
   | "current_price"
-  | "market_cap";
+  | "market_cap"
+  | "rsi_14";
 
 const STRING_KEYS: SortKey[] = ["ticker", "company_name"];
 
@@ -53,20 +56,30 @@ export function TrendingStocksTable({ limit = 20, compact = false, category, cha
     }
   }
 
+  /** A private company, an ETF, or an unpriced ticker has no market cap or price to
+   *  rank. Treat those as "missing" rather than as a number: zero is how the API
+   *  spells absent for some feeds, and a real traded stock never has either at 0. */
+  function isMissing(key: SortKey, v: unknown): boolean {
+    if (v == null) return true;
+    return (key === "market_cap" || key === "current_price") && v === 0;
+  }
+
   const sortedStocks = useMemo(() => {
-    const sorted = [...stocks].sort((a, b) => {
+    const dir = sortDir === "desc" ? -1 : 1;
+    return [...stocks].sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
-      if (av == null && bv == null) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
+      // Missing values sink to the bottom in BOTH directions -- they are unknown,
+      // not "larger than every real value". Sorting the array and reversing it
+      // would carry them to the top of a descending sort.
+      const aMissing = isMissing(sortKey, av);
+      const bMissing = isMissing(sortKey, bv);
+      if (aMissing || bMissing) return aMissing && bMissing ? 0 : aMissing ? 1 : -1;
       if (typeof av === "string" || typeof bv === "string") {
-        return String(av).localeCompare(String(bv));
+        return String(av).localeCompare(String(bv)) * dir;
       }
-      return (av as number) - (bv as number);
+      return ((av as number) - (bv as number)) * dir;
     });
-    if (sortDir === "desc") sorted.reverse();
-    return sorted;
   }, [stocks, sortKey, sortDir]);
 
   if (loading) {
@@ -109,6 +122,7 @@ export function TrendingStocksTable({ limit = 20, compact = false, category, cha
               <>
                 <SortableHeader label="Price" sortKey="current_price" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-24" />
                 <SortableHeader label="Mkt Cap" sortKey="market_cap" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-24" />
+                <SortableHeader label="RSI 14" sortKey="rsi_14" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="right" className="w-20" />
               </>
             )}
           </tr>
@@ -122,7 +136,10 @@ export function TrendingStocksTable({ limit = 20, compact = false, category, cha
             >
               <td className="py-3 px-3 text-muted-foreground">{i + 1}</td>
               <td className="py-3 px-3">
+                {/* Stacked, not inline: the ticker column is too narrow to hold both
+                    without the badge wrapping into the company name beside it. */}
                 <span className="font-bold text-foreground font-mono">{stock.ticker}</span>
+                <SymbolStatusBadge status={stock.symbol_status} className="mt-1 flex w-fit" />
               </td>
               {!compact && (
                 <td className="py-3 px-3 text-muted-foreground truncate max-w-0">
@@ -169,6 +186,11 @@ export function TrendingStocksTable({ limit = 20, compact = false, category, cha
                     {stock.is_public === false
                       ? <span className="text-xs">Private</span>
                       : stock.market_cap ? `$${formatLargeNumber(stock.market_cap)}` : "—"}
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    {stock.is_public === false
+                      ? <span className="text-xs text-muted-foreground">Private</span>
+                      : <RsiValue value={stock.rsi_14} />}
                   </td>
                 </>
               )}

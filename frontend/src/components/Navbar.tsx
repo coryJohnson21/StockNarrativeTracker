@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { TrendingUp, BarChart2, Layers, Upload, Database, Star, Rss, FlaskConical, UserRoundCheck } from "lucide-react";
+import { TrendingUp, BarChart2, Layers, Upload, Database, Star, Rss, FlaskConical, UserRoundCheck, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -12,6 +12,7 @@ const nav = [
   { href: "/themes", label: "Themes", icon: Layers },
   { href: "/insiders", label: "Insiders", icon: UserRoundCheck },
   { href: "/subscriptions", label: "Subscriptions", icon: Rss },
+  { href: "/reddit", label: "Reddit", icon: MessageSquare },
   { href: "/research", label: "Research", icon: FlaskConical },
   { href: "/ingest", label: "Add Content", icon: Upload },
   { href: "/sources", label: "Sources", icon: Database },

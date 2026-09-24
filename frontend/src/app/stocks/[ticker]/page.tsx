@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -8,9 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { SentimentBadge } from "@/components/SentimentBadge";
 import { MomentumBar } from "@/components/MomentumBadge";
+import { RsiValue, rsiHint } from "@/components/RsiValue";
 import { getStockProfile, getStockFilings } from "@/lib/api";
 import { formatLargeNumber, formatRatio, formatPrice } from "@/lib/utils";
 import { StockPriceChart } from "@/components/StockPriceChart";
+import { SymbolStatusBadge } from "@/components/SymbolStatusBadge";
 import { MomentumHistoryChart } from "@/components/MomentumHistoryChart";
 import type { StockProfile, StockFiling, CallType } from "@/types";
 
@@ -64,10 +67,23 @@ const GUIDANCE_VARIANT: Record<string, "bullish" | "bearish" | "neutral" | "seco
   initiated: "secondary",
 };
 
-function StatTile({ label, value }: { label: string; value: string }) {
+function StatTile({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+}) {
   return (
     <div className="space-y-1">
-      <p className="text-xs text-muted-foreground uppercase tracking-wide">{label}</p>
+      <p
+        className={`text-xs text-muted-foreground uppercase tracking-wide ${hint ? "cursor-help" : ""}`}
+        title={hint}
+      >
+        {label}
+      </p>
       <p className="text-xl font-semibold tabular-nums">{value}</p>
     </div>
   );
@@ -94,6 +110,10 @@ export default function StockDetailPage() {
       .catch(() => setFilings([]));
   }, [ticker]);
 
+  // Nothing can price a ticker with no security behind it, so the price readout and
+  // chart are omitted rather than rendered blank. "ok" and never-checked both pass.
+  const tradeable = !profile?.symbol_status || profile.symbol_status === "ok";
+
   return (
     <div className="space-y-6">
       <Link href="/stocks" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
@@ -114,24 +134,41 @@ export default function StockDetailPage() {
         <>
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight font-mono">{profile.ticker}</h1>
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-3xl font-bold tracking-tight font-mono">{profile.ticker}</h1>
+                <SymbolStatusBadge status={profile.symbol_status} className="text-[10px] px-1.5 py-0.5" />
+              </div>
               <p className="text-muted-foreground mt-1">{profile.company_name}</p>
+              {profile.symbol_status && profile.symbol_status !== "ok" && (
+                // The price, chart and fundamentals below are all empty for these.
+                // Say why once, here, instead of leaving a page of blanks unexplained.
+                <p className="text-xs text-amber-500/90 mt-2 max-w-xl leading-relaxed">
+                  {profile.symbol_status === "mismatch"
+                    ? "This ticker resolves to an index or quote feed rather than this company, so no price or fundamentals are shown."
+                    : "No US-listed symbol trades under this ticker — it is either a private company or a bad extraction, so no price or fundamentals are shown."}{" "}
+                  Mentions and narrative below are still tracked.
+                </p>
+              )}
             </div>
-            <div className="text-right">
-              <p className="text-3xl font-bold tabular-nums">
-                {formatPrice(profile.price.current, profile.price.currency)}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Open: {formatPrice(profile.price.open, profile.price.currency)}
-              </p>
-            </div>
+            {tradeable && (
+              <div className="text-right">
+                <p className="text-3xl font-bold tabular-nums">
+                  {formatPrice(profile.price.current, profile.price.currency)}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Open: {formatPrice(profile.price.open, profile.price.currency)}
+                </p>
+              </div>
+            )}
           </div>
 
-          <Card>
-            <CardContent className="pt-6">
-              <StockPriceChart ticker={profile.ticker} currency={profile.price.currency} />
-            </CardContent>
-          </Card>
+          {tradeable && (
+            <Card>
+              <CardContent className="pt-6">
+                <StockPriceChart ticker={profile.ticker} currency={profile.price.currency} />
+              </CardContent>
+            </Card>
+          )}
 
           {profile.signals && profile.signals.signals.length > 0 && (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -162,17 +199,28 @@ export default function StockDetailPage() {
             </Card>
           )}
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Summary Statistics</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-2 sm:grid-cols-4 gap-6">
-              <StatTile label="Market Cap" value={formatLargeNumber(profile.fundamentals.market_cap)} />
-              <StatTile label="P/E Ratio" value={formatRatio(profile.fundamentals.pe_ratio)} />
-              <StatTile label="Price / Book" value={formatRatio(profile.fundamentals.price_to_book)} />
-              <StatTile label="Price / Sales" value={formatRatio(profile.fundamentals.price_to_sales)} />
-            </CardContent>
-          </Card>
+          {tradeable && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Summary Statistics</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
+                <StatTile label="Market Cap" value={formatLargeNumber(profile.fundamentals.market_cap)} />
+                <StatTile label="P/E Ratio" value={formatRatio(profile.fundamentals.pe_ratio)} />
+                <StatTile label="Price / Book" value={formatRatio(profile.fundamentals.price_to_book)} />
+                <StatTile label="Price / Sales" value={formatRatio(profile.fundamentals.price_to_sales)} />
+                <StatTile
+                  label="RSI 14"
+                  value={<RsiValue value={profile.fundamentals.rsi_14} />}
+                  hint={
+                    profile.fundamentals.rsi_14 == null
+                      ? undefined
+                      : rsiHint(profile.fundamentals.rsi_14)
+                  }
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {profile.insiders && (profile.insiders.buys > 0 || profile.insiders.sells > 0) && (
             <Card>
