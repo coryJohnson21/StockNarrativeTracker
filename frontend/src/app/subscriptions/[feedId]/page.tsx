@@ -12,6 +12,7 @@ import type { SourceExtractions } from "@/lib/api";
 import { timeAgo, formatDuration } from "@/lib/utils";
 import type { PodcastFeedDetail, PodcastEpisode } from "@/types";
 import { ExtractionDetailGrid } from "@/components/ExtractionDetailGrid";
+import { TrackRecordPanel } from "@/components/TrackRecordPanel";
 
 const statusVariant: Record<string, "default" | "secondary" | "bullish" | "bearish" | "neutral"> = {
   completed: "bullish",
@@ -171,6 +172,8 @@ export default function SubscriptionDetailPage() {
           Refresh
         </Button>
       </div>
+
+      <TrackRecordPanel feedId={feedId} label={feed.label} />
 
       {feed.episodes.length === 0 ? (
         <Card>

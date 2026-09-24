@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Loader2, AlertCircle, Plus, Trash2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,7 +89,10 @@ export function RedditFeedsTab() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Hot posts are fetched every 2 hours. Each post's title, body, and top comments are
+          <Link href="/reddit" className="text-primary hover:underline">
+            Open the Reddit page
+          </Link>{" "}
+          for top tickers and per-subreddit track records. Hot posts are fetched every 2 hours. Each post's title, body, and top comments are
           sent through GPT-4o extraction — no audio transcription needed. Up to 5 new posts
           are ingested per poll to avoid rate limits.
         </p>
@@ -123,14 +127,16 @@ export function RedditFeedsTab() {
                 key={feed.id}
                 className="flex items-center justify-between gap-3 rounded-lg border p-3"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">r/{feed.subreddit}</p>
+                <Link href={`/reddit/${feed.id}`} className="min-w-0 group">
+                  <p className="text-sm font-medium group-hover:text-primary transition-colors">
+                    r/{feed.subreddit}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {feed.post_count} post{feed.post_count === 1 ? "" : "s"} ingested
                     {feed.last_polled_at &&
                       ` · last checked ${new Date(feed.last_polled_at).toLocaleString()}`}
                   </p>
-                </div>
+                </Link>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <Button
                     type="button"

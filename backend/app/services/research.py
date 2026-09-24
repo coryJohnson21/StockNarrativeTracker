@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +29,8 @@ BENCHMARK_TICKER = "SPY"
 HORIZONS = (5, 20, 60)
 _UPSERT_CHUNK = 1000
 _MAX_ENTRY_LAG_DAYS = 5
+# Wilder's default lookback; the RSI shown on the stocks table and stock page.
+RSI_PERIODS = 14
 
 
 # --- point-in-time mention statistics --------------------------------------
@@ -216,17 +218,69 @@ class PriceSeries:
             return None
         return self.closes[-1] / self.closes[-1 - trading_days] - 1.0
 
+    def rsi(self, periods: int = 14) -> Optional[float]:
+        """Wilder's Relative Strength Index over the latest `periods` closes, 0-100.
+
+        Wilder smooths the average gain/loss with alpha = 1/periods, NOT the 2/(n+1)
+        an EMA of the same span would use -- the two disagree by enough to put the
+        value on the wrong side of 30/70, so this is written out rather than handed
+        to a generic EMA. Needs periods+1 closes to produce its first value (n deltas
+        from n+1 points); returns None below that rather than a half-seeded number.
+
+        An all-gains window has no downside to divide by, which is RSI 100 by
+        definition (and 0 for all-losses)."""
+        if periods < 1 or len(self.closes) <= periods:
+            return None
+
+        deltas = [b - a for a, b in zip(self.closes, self.closes[1:])]
+
+        # Seed: simple mean of the first `periods` deltas, per Wilder.
+        avg_gain = sum(d for d in deltas[:periods] if d > 0) / periods
+        avg_loss = sum(-d for d in deltas[:periods] if d < 0) / periods
+
+        # Then smooth across the rest of the series.
+        for d in deltas[periods:]:
+            gain = d if d > 0 else 0.0
+            loss = -d if d < 0 else 0.0
+            avg_gain = (avg_gain * (periods - 1) + gain) / periods
+            avg_loss = (avg_loss * (periods - 1) + loss) / periods
+
+        if avg_loss == 0:
+            return 100.0 if avg_gain > 0 else 50.0
+        rs = avg_gain / avg_loss
+        return round(100.0 - 100.0 / (1.0 + rs), 1)
+
+    def _entry(self, start: date) -> Optional[int]:
+        """Index of the close a position opened on `start` would enter at, or None when
+        the series has no close within a few days of it (a gap, or a date past its end)."""
+        i = bisect.bisect_left(self.dates, start)
+        if i >= len(self.dates) or (self.dates[i] - start).days > _MAX_ENTRY_LAG_DAYS:
+            return None
+        return i if self.closes[i] > 0 else None
+
     def forward_return(self, start: date, horizon_trading_days: int) -> Optional[float]:
         """Return from the first close on/after `start` to the close `horizon` trading
         days later. None if there's no close within a few days of `start` (a gap in
         the data) or the exit is past the end of the series (not yet realized)."""
-        i = bisect.bisect_left(self.dates, start)
-        if i >= len(self.dates) or (self.dates[i] - start).days > _MAX_ENTRY_LAG_DAYS:
+        i = self._entry(start)
+        if i is None:
             return None
         j = i + horizon_trading_days
-        if j >= len(self.dates) or self.closes[i] <= 0:
+        if j >= len(self.dates):
             return None
         return self.closes[j] / self.closes[i] - 1.0
+
+    def return_since(self, start: date) -> Optional[tuple[float, date, int]]:
+        """Return from the same entry `forward_return` uses to the latest close we hold,
+        with that close's date and how many trading days it sits after entry.
+
+        Unlike forward_return this has no fixed exit, so it keeps moving as prices
+        arrive -- it says where the call stands now, not how it scored."""
+        i = self._entry(start)
+        if i is None:
+            return None
+        last = len(self.dates) - 1
+        return self.closes[last] / self.closes[i] - 1.0, self.dates[last], last - i
 
 
 async def _ensure_benchmark(db: AsyncSession) -> Stock:
@@ -262,6 +316,10 @@ async def refresh_price_history(db: AsyncSession, full: bool = False) -> dict:
             select(Stock)
             .join(StockMomentum, Stock.id == StockMomentum.stock_id)
             .where(Stock.is_public.isnot(False))
+            # A ticker that does not resolve to a tradeable security has no prices to
+            # fetch; without this every refresh re-requests "FERC" and "OPENAI" forever.
+            # NULL means never checked, which is still worth trying.
+            .where(or_(Stock.symbol_status == "ok", Stock.symbol_status.is_(None)))
         )
     ).scalars().all()
     targets = {s.id: s for s in stocks}
@@ -304,6 +362,42 @@ async def load_price_series(db: AsyncSession, stock_ids: list) -> dict:
     for sid, d, c in rows:
         grouped[sid].append((d, c))
     return {sid: PriceSeries(pts) for sid, pts in grouped.items()}
+
+
+async def load_rsi(db: AsyncSession, stock_ids: list, periods: int = RSI_PERIODS) -> dict:
+    """RSI for many stocks in one query, keyed by stock id.
+
+    Stocks with too little price history are absent from the result rather than
+    present with a None, so callers can tell "no reading" from "not asked for".
+    Only the trailing closes RSI can actually depend on are loaded -- Wilder's
+    smoothing technically reaches back to the seed, but the influence of a close
+    decays by (1 - 1/periods) per bar, so a few hundred bars is indistinguishable
+    from the full series and keeps this off a full table scan."""
+    if not stock_ids:
+        return {}
+
+    # periods+1 closes is the bare minimum; take well beyond it so the smoothing
+    # has converged, while still bounding the rows pulled per stock.
+    lookback = max(periods * 10, 120)
+    cutoff = date.today() - timedelta(days=lookback * 2)  # calendar days vs trading days
+
+    rows = (
+        await db.execute(
+            select(StockPrice.stock_id, StockPrice.date, StockPrice.close)
+            .where(StockPrice.stock_id.in_(stock_ids), StockPrice.date >= cutoff)
+        )
+    ).all()
+
+    grouped: dict = defaultdict(list)
+    for sid, d, c in rows:
+        grouped[sid].append((d, c))
+
+    out = {}
+    for sid, pts in grouped.items():
+        value = PriceSeries(pts).rsi(periods)
+        if value is not None:
+            out[sid] = value
+    return out
 
 
 # --- backtest statistics (pure) ---------------------------------------------

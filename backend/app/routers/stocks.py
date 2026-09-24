@@ -27,6 +27,7 @@ from app.services.momentum import (
 from app.services import market_data
 from app.services.calls import get_stock_calls, get_stock_call_summary
 from app.services.insiders import get_stock_insider_summary, get_stock_insider_transactions
+from app.services.research import load_rsi
 from app.services.narratives import get_stock_narratives
 from app.services.signals import get_stock_signals
 from app.services.extraction import condense_company_description, generate_narrative_summary
@@ -58,6 +59,7 @@ async def get_trending_stocks(
     if rows is not None:
         stock_ids = [row["parent"].id for row in rows]
         extras = await get_stock_momentum_extras(db, stock_ids)
+        rsi = await load_rsi(db, stock_ids)
         results = [
             StockMomentumResponse(
                 id=row["parent"].id,
@@ -65,6 +67,7 @@ async def get_trending_stocks(
                 company_name=row["parent"].company_name,
                 sector=row["parent"].sector,
                 is_public=row["parent"].is_public,
+                symbol_status=row["parent"].symbol_status,
                 score=row["score"],
                 mention_count=row["mention_count"],
                 mention_count_7d=row["mention_count_7d"],
@@ -78,6 +81,7 @@ async def get_trending_stocks(
                 current_price=extras.get(row["parent"].id, {}).get("current_price"),
                 market_cap=extras.get(row["parent"].id, {}).get("market_cap"),
                 novelty_7d=row.get("novelty_7d"),
+                rsi_14=rsi.get(row["parent"].id),
                 computed_at=row["computed_at"],
             )
             for row in rows
@@ -101,6 +105,8 @@ async def get_trending_stocks(
     total = (await db.execute(count_q)).scalar()
     rows = (await db.execute(q.offset(offset).limit(limit))).all()
 
+    rsi = await load_rsi(db, [stock.id for stock, _ in rows])
+
     results = []
     for stock, momentum in rows:
         results.append(
@@ -110,6 +116,7 @@ async def get_trending_stocks(
                 company_name=stock.company_name,
                 sector=stock.sector,
                 is_public=stock.is_public,
+                symbol_status=stock.symbol_status,
                 score=momentum.score,
                 mention_count=momentum.mention_count,
                 mention_count_7d=momentum.mention_count_7d,
@@ -123,6 +130,7 @@ async def get_trending_stocks(
                 current_price=momentum.current_price,
                 market_cap=momentum.market_cap,
                 novelty_7d=momentum.novelty_7d,
+                rsi_14=rsi.get(stock.id),
                 computed_at=momentum.computed_at,
             )
         )
@@ -393,6 +401,7 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
         "ticker": stock.ticker,
         "company_name": stock.company_name,
         "sector": stock.sector,
+        "symbol_status": stock.symbol_status,
         "description": description,
         "price": {
             "open": market.get("open_price") if market else None,
@@ -404,6 +413,9 @@ async def get_stock_profile(ticker: str, db: AsyncSession = Depends(get_db)):
             "pe_ratio": market.get("pe_ratio") if market else None,
             "price_to_book": market.get("price_to_book") if market else None,
             "price_to_sales": market.get("price_to_sales") if market else None,
+            # Computed from our own stored closes, not the market-data provider, so it
+            # agrees with the RSI shown on the stocks table.
+            "rsi_14": (await load_rsi(db, [stock.id])).get(stock.id),
         },
         "momentum_score": momentum.score if momentum else None,
         "mention_breakdown": mention_breakdown,

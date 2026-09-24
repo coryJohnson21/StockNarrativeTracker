@@ -14,6 +14,7 @@ from app.schemas.schemas import (
     PodcastEpisodeResponse,
 )
 from app.services import podcast as podcast_service
+from app.services.reliability import DEFAULT_HORIZON, channel_track_record
 from app.services import youtube as youtube_service
 from app.tasks.podcast_poll import poll_feed, poll_all_feeds
 
@@ -119,6 +120,24 @@ async def get_feed(feed_id: str, db: AsyncSession = Depends(get_db)):
     ]
 
     return PodcastFeedDetailResponse(**base.model_dump(), episodes=episodes)
+
+
+@router.get("/{feed_id}/track-record")
+async def get_feed_track_record(
+    feed_id: str,
+    horizon: int = Query(DEFAULT_HORIZON, ge=1, le=250, description="Trading days after a call over which it is judged"),
+    db: AsyncSession = Depends(get_db),
+):
+    """This feed's scored calls -- the detail behind the one-line weight the research
+    page shows for it. Computed on demand from stored calls and prices rather than
+    read from source_reliability, so the individual outcomes are always in step with
+    the summary and a different horizon can be asked for."""
+    result = await db.execute(select(PodcastFeed).where(PodcastFeed.id == feed_id))
+    feed = result.scalar_one_or_none()
+    if feed is None:
+        raise HTTPException(status_code=404, detail="Feed not found")
+
+    return await channel_track_record(db, feed.label, horizon=horizon)
 
 
 @router.delete("/{feed_id}", status_code=204)

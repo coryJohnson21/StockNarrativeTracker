@@ -1,4 +1,4 @@
-import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, ThemeIndex, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed, ResearchStatus, BacktestResult, SourceReliability, RecentInsiderTrades, InsiderOverview } from "@/types";
+import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, ThemeIndex, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed, RedditFeedDetail, RedditOverview, ResearchStatus, BacktestResult, SourceReliability, ChannelTrackRecord, RecentInsiderTrades, InsiderOverview } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -232,6 +232,10 @@ export async function getPodcastFeedDetail(id: string): Promise<PodcastFeedDetai
   return apiFetch(`/api/podcasts/${id}`);
 }
 
+export async function getPodcastFeedTrackRecord(id: string, horizon = 20): Promise<ChannelTrackRecord> {
+  return apiFetch(`/api/podcasts/${id}/track-record?horizon=${horizon}`);
+}
+
 export async function removePodcastFeed(id: string): Promise<void> {
   await apiFetch(`/api/podcasts/${id}`, { method: "DELETE" });
 }
@@ -256,6 +260,18 @@ export async function resolveYoutubeChannel(url: string): Promise<YoutubeChannel
 
 export async function getRedditFeeds(): Promise<{ feeds: RedditFeed[] }> {
   return apiFetch("/api/reddit");
+}
+
+export async function getRedditOverview(): Promise<RedditOverview> {
+  return apiFetch("/api/reddit/overview");
+}
+
+export async function getRedditFeedDetail(id: string): Promise<RedditFeedDetail> {
+  return apiFetch(`/api/reddit/${id}`);
+}
+
+export async function getRedditFeedTrackRecord(id: string, horizon = 20): Promise<ChannelTrackRecord> {
+  return apiFetch(`/api/reddit/${id}/track-record?horizon=${horizon}`);
 }
 
 export async function addRedditFeed(subreddit: string): Promise<RedditFeed> {

@@ -8,7 +8,7 @@ import math
 import statistics
 import uuid
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import select, update, delete, func
@@ -40,6 +40,45 @@ def call_alpha(call: str, excess_return: float) -> Optional[float]:
     """Excess return in the direction the call bet on; positive means the call was right."""
     direction = DIRECTIONAL.get(call)
     return None if direction is None else direction * excess_return
+
+
+def score_call_outcome(
+    call: str,
+    ret: Optional[float],
+    bench_ret: Optional[float],
+    since: Optional[tuple[float, date, int]] = None,
+) -> dict:
+    """Turn one call's realized return into the outcome fields a UI shows, as percents.
+
+    Everything is None when the call can't be judged -- no price yet, or a hold/watch
+    that took no side -- so "not yet" and "wrong" stay distinguishable. Excess falls
+    back to the raw return when no benchmark is loaded, matching compute_source_reliability.
+
+    `since` is the open-ended (return, as-of date, trading days elapsed) from
+    PriceSeries.return_since. It is reported but never scored: it has no fixed exit,
+    so folding it into hit rate or alpha would make a channel's record drift with
+    every new close. The scored verdict stays the fixed-horizon one.
+
+    "alpha" is the unrounded fraction, for callers averaging across calls; the caller
+    drops it from what it serves. Averaging the rounded percents instead would drift
+    from the mean_alpha_pct compute_source_reliability stores for the same calls.
+    """
+    excess = (ret - bench_ret) if (ret is not None and bench_ret is not None) else ret
+    alpha = call_alpha(call, excess) if excess is not None else None
+    as_pct = lambda v: round(v * 100, 2) if v is not None else None
+    since_ret, since_date, since_days = since if since is not None else (None, None, None)
+    return {
+        "alpha": alpha,
+        "directional": call in DIRECTIONAL,
+        "return_pct": as_pct(ret),
+        "benchmark_return_pct": as_pct(bench_ret),
+        "excess_return_pct": as_pct(excess),
+        "alpha_pct": as_pct(alpha),
+        "correct": None if alpha is None else alpha > 0,
+        "return_since_pct": as_pct(since_ret),
+        "since_as_of": since_date,
+        "since_trading_days": since_days,
+    }
 
 
 def posterior_hit_rate(hits: int, scored: int, prior_strength: float = PRIOR_STRENGTH) -> float:
@@ -172,3 +211,81 @@ async def get_source_reliability(db: AsyncSession) -> list[dict]:
         }
         for r in rows
     ]
+
+
+async def channel_track_record(db: AsyncSession, channel: str, horizon: int = DEFAULT_HORIZON) -> dict:
+    """One channel's record with the individual calls behind it, newest first.
+
+    The aggregate here is computed from the same calls the list shows, so a landing
+    page can show the number and the evidence for it without them disagreeing. Calls
+    too recent to have a realized `horizon`-day return are returned with a null
+    outcome rather than dropped -- "made but not yet judged" is worth seeing."""
+    # Same grouping as channel_key(), expressed in SQL so one channel's calls can be
+    # fetched without loading every call in the database.
+    key_expr = func.coalesce(func.nullif(func.trim(Source.channel), ""), Source.type)
+    rows = (
+        await db.execute(
+            select(StockCall, Stock.ticker, Source.type, Source.title, Source.url)
+            .join(Source, StockCall.source_id == Source.id)
+            .join(Stock, StockCall.stock_id == Stock.id)
+            .where(Source.type.notin_(FILING_SOURCE_TYPES), key_expr == channel)
+            .order_by(StockCall.called_at.desc())
+        )
+    ).all()
+
+    benchmark = (await db.execute(select(Stock).where(Stock.ticker == BENCHMARK_TICKER))).scalar_one_or_none()
+    stock_ids = list({call.stock_id for call, *_ in rows})
+    if benchmark is not None:
+        stock_ids.append(benchmark.id)
+    prices = await load_price_series(db, stock_ids)
+    bench = prices.get(benchmark.id) if benchmark is not None else None
+
+    calls: list[dict] = []
+    alphas: list[float] = []
+    hits = 0
+    types: Counter = Counter()
+
+    for call, ticker, source_type, title, url in rows:
+        types[source_type] += 1
+        series = prices.get(call.stock_id)
+        day = call.called_at.date()
+        outcome = score_call_outcome(
+            call.call,
+            series.forward_return(day, horizon) if series is not None else None,
+            bench.forward_return(day, horizon) if bench is not None else None,
+            since=series.return_since(day) if series is not None else None,
+        )
+        alpha = outcome.pop("alpha")
+        if alpha is not None:
+            alphas.append(alpha)
+            if outcome["correct"]:
+                hits += 1
+        calls.append(
+            {
+                "ticker": ticker,
+                "call": call.call,
+                "price_target": call.price_target,
+                "reasoning": call.reasoning,
+                "called_at": call.called_at,
+                "source_id": call.source_id,
+                "source_title": title,
+                "source_url": url,
+                **outcome,
+            }
+        )
+
+    scored = len(alphas)
+    return {
+        "channel_key": channel,
+        "source_type": types.most_common(1)[0][0] if types else None,
+        "horizon": horizon,
+        "benchmark": BENCHMARK_TICKER if bench is not None else None,
+        "n_calls": len(calls),
+        "n_scored": scored,
+        "hits": hits,
+        "hit_rate": round(hits / scored, 3) if scored else None,
+        "wilson_lower": round(wilson_lower(hits, scored), 3) if scored else None,
+        "mean_alpha_pct": round(statistics.fmean(alphas) * 100, 2) if alphas else None,
+        "weight": reliability_weight(hits, scored),
+        "calls": calls,
+    }

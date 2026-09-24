@@ -34,14 +34,22 @@ export interface StockTrending {
   unique_sources: number;
   ai_summary?: string;
   is_public?: boolean;
+  /** Whether the ticker resolves to a real tradeable security. "unknown" = no such
+   *  symbol (a private company or a bad extraction); "mismatch" = resolves to an
+   *  index/ECN quote rather than the company named. null = never checked. */
+  symbol_status?: SymbolStatus | null;
   label?: string;
   previous_label?: string;
   confidence?: Confidence;
   current_price?: number;
   market_cap?: number;
   novelty_7d?: number | null;
+  /** Wilder's 14-period RSI on daily closes, 0-100. Null when price history is too short. */
+  rsi_14?: number | null;
   computed_at: string;
 }
+
+export type SymbolStatus = "ok" | "unknown" | "mismatch";
 
 export type Confidence = "low" | "medium" | "high";
 
@@ -104,6 +112,7 @@ export interface StockProfile {
   ticker: string;
   company_name?: string;
   sector?: string;
+  symbol_status?: SymbolStatus | null;
   description?: string;
   price: { open?: number; current?: number; currency?: string };
   fundamentals: {
@@ -111,6 +120,7 @@ export interface StockProfile {
     pe_ratio?: number;
     price_to_book?: number;
     price_to_sales?: number;
+    rsi_14?: number | null;
   };
   momentum_score?: number;
   mention_breakdown: {
@@ -404,6 +414,46 @@ export interface PodcastEpisode {
   summary?: string;
 }
 
+export interface ScoredCall {
+  ticker: string;
+  call: CallType;
+  price_target?: number | null;
+  reasoning?: string | null;
+  called_at: string;
+  source_id: string;
+  source_title?: string | null;
+  source_url?: string | null;
+  /** False for hold/watch, which take no side and so can't be right or wrong. */
+  directional: boolean;
+  return_pct?: number | null;
+  benchmark_return_pct?: number | null;
+  excess_return_pct?: number | null;
+  /** Excess return signed by the call's direction; positive means the call was right. */
+  alpha_pct?: number | null;
+  /** Null while the call is directional but too recent to have a realized return. */
+  correct?: boolean | null;
+  /** Open-ended return from the call to the latest close we hold. Never scored. */
+  return_since_pct?: number | null;
+  /** The date return_since_pct runs to — the last close, which may lag today. */
+  since_as_of?: string | null;
+  since_trading_days?: number | null;
+}
+
+export interface ChannelTrackRecord {
+  channel_key: string;
+  source_type: string | null;
+  horizon: number;
+  benchmark: string | null;
+  n_calls: number;
+  n_scored: number;
+  hits: number;
+  hit_rate: number | null;
+  wilson_lower: number | null;
+  mean_alpha_pct: number | null;
+  weight: number;
+  calls: ScoredCall[];
+}
+
 export interface PodcastFeedDetail extends PodcastFeed {
   episodes: PodcastEpisode[];
 }
@@ -427,6 +477,38 @@ export interface RedditFeed {
   last_polled_at?: string;
   created_at: string;
   post_count: number;
+}
+
+export interface RedditPost {
+  id: string;
+  title?: string | null;
+  url?: string | null;
+  published_at?: string | null;
+  created_at?: string | null;
+  status: string;
+  error_message?: string | null;
+  summary?: string | null;
+}
+
+export interface RedditTopTicker {
+  ticker: string;
+  company_name?: string | null;
+  symbol_status?: SymbolStatus | null;
+  mention_count: number;
+  unique_posts: number;
+  avg_sentiment?: number | null;
+}
+
+export interface RedditFeedDetail extends RedditFeed {
+  posts: RedditPost[];
+  top_tickers: RedditTopTicker[];
+}
+
+export interface RedditOverview {
+  feeds: RedditFeed[];
+  total_posts: number;
+  top_tickers_7d: RedditTopTicker[];
+  trailing_days: number;
 }
 
 export interface StockFiling {
