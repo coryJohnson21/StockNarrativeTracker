@@ -4,26 +4,64 @@
 
 @layer base {
   :root {
-    --background: 224 71.4% 4.1%;
-    --foreground: 210 20% 98%;
-    --card: 224 71.4% 6%;
-    --card-foreground: 210 20% 98%;
-    --popover: 224 71.4% 4.1%;
-    --popover-foreground: 210 20% 98%;
-    --primary: 263.4 70% 50.4%;
-    --primary-foreground: 210 20% 98%;
-    --secondary: 215 27.9% 16.9%;
-    --secondary-foreground: 210 20% 98%;
-    --muted: 215 27.9% 16.9%;
-    --muted-foreground: 217.9 10.6% 64.9%;
-    --accent: 215 27.9% 16.9%;
-    --accent-foreground: 210 20% 98%;
+    /* Neutral warm-gray, not blue-black: the old 224deg background tinted every
+       surface blue, which fought the green/red that actually carry meaning. */
+    --background: 240 6% 5%;
+    --foreground: 0 0% 96%;
+    --card: 240 5% 7.5%;
+    --card-foreground: 0 0% 96%;
+    --popover: 240 6% 6%;
+    --popover-foreground: 0 0% 96%;
+    /* Amber rather than violet. Green and red are reserved for direction, so the
+       accent must not be either -- and must not read as a third sentiment. */
+    --primary: 38 92% 50%;
+    --primary-foreground: 240 6% 5%;
+    --secondary: 240 4% 14%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 4% 13%;
+    --muted-foreground: 240 4% 56%;
+    --accent: 240 4% 15%;
+    --accent-foreground: 0 0% 96%;
     --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 20% 98%;
-    --border: 215 27.9% 16.9%;
-    --input: 215 27.9% 16.9%;
-    --ring: 263.4 70% 50.4%;
-    --radius: 0.5rem;
+    --destructive-foreground: 0 0% 96%;
+    --border: 240 4% 14%;
+    --input: 240 4% 14%;
+    --ring: 38 92% 50%;
+    /* 4px, not 8px: large radii read as marketing cards, not instrument panels. */
+    --radius: 0.25rem;
+
+    /* Sticky layout: the nav bar's height, and the height of a page toolbar that
+       docks beneath it. The table header pins at the sum of the two, so these
+       three positions are derived from one place rather than hand-computed. */
+    --nav-h: 2.75rem;   /* h-11 */
+    --toolbar-h: 3rem;  /* py-2.5 + a 28px control */
+
+    /* Brand. --murmur-knockout is the colour the mark's glyph is cut out to;
+       it must match whatever surface the mark sits on, which on every screen
+       here is the page background. */
+    --murmur-ink: 240 9% 11%;
+    --murmur-paper: 40 20% 95%;
+    --murmur-knockout: hsl(var(--background));
+
+    /* Narrative stage colours (spec 1b). One hue per stage so a column of them
+       reads as categories, not as a heat scale. Building is blue rather than a
+       green/red tone because accumulating attention is not itself directional. */
+    --stage-positive: oklch(0.8 0.15 150);
+    --stage-building: oklch(0.78 0.11 245);
+    --stage-mixed: oklch(0.82 0.13 75);
+    --stage-emerging: oklch(0.78 0.12 300);
+    --stage-fading: oklch(0.7 0.14 25);
+
+    /* Direction (gains/losses, sentiment sign) as oklch per the 1b spec. These
+       sit alongside the older --up/--down HSL pair, which Tailwind exposes as
+       text-up / text-down and other screens still use. */
+    --up-c: oklch(0.8 0.14 150);
+    --down-c: oklch(0.72 0.15 25);
+
+    /* Direction colors. Slightly desaturated from Tailwind's defaults so a table
+       full of them doesn't vibrate against the dark background. */
+    --up: 142 69% 58%;
+    --down: 0 84% 68%;
   }
 }
 
@@ -34,5 +72,73 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  /* Every number in the app aligns on its digits. Applied globally rather than
+     per-cell so a new column can't silently opt out and break column alignment. */
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer utilities {
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  /* A toolbar docked directly under the nav. Negative margins cancel the main
+     element's vertical padding so the bar spans full width and leaves no gap
+     for rows to show through as it pins. */
+  .dock-toolbar {
+    position: sticky;
+    top: var(--nav-h);
+    z-index: 30;
+    background: hsl(var(--background));
+    margin-inline: -1.5rem;
+    padding-inline: 1.5rem;
+  }
+  /* Wrapper for a table whose header sticks to the viewport.
+
+     `clip` rather than `auto`: setting overflow on one axis computes the other
+     to `auto` too, which makes the wrapper a scroll container and traps the
+     sticky header inside it (it pins to the wrapper and scrolls away with the
+     page). `clip` constrains the x-axis without creating that container.
+
+     But clipping alone would hide the right-hand columns unreachably on a
+     narrow screen. So below the width the columns actually need, fall back to
+     a real scroller: the header stops sticking there, which is the right
+     trade -- a reachable RSI column beats a pinned header. */
+  .table-scroll {
+    overflow-x: clip;
+  }
+  @media (max-width: 1150px) {
+    .table-scroll {
+      overflow-x: auto;
+    }
+    .dock-thead > th {
+      position: static;
+    }
+  }
+  /* The 1b stocks list is a div grid, not a table, so its header sticks
+     directly -- none of the border-collapse trouble that forces .dock-thead to
+     stick the cells instead of the row. */
+  .dock-thead-1b {
+    position: sticky;
+    top: calc(var(--nav-h) + var(--toolbar-h));
+    z-index: 20;
+  }
+  @media (max-width: 1150px) {
+    .dock-thead-1b { position: static; }
+  }
+
+  /* A table header pinned beneath that toolbar.
+     The sticky must go on the th cells, NOT the tr: under border-collapse:
+     collapse a sticky row is simply ignored by the spec, so the header scrolls
+     away. Cells still stick, so the row's background and bottom border move onto
+     them too -- a collapsed table drops the tr's own border as it scrolls. */
+  .dock-thead > th {
+    position: sticky;
+    top: calc(var(--nav-h) + var(--toolbar-h));
+    z-index: 20;
+    background: hsl(var(--background));
+    box-shadow: inset 0 -1px 0 hsl(var(--border));
   }
 }

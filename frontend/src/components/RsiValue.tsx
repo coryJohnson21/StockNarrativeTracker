@@ -15,9 +15,9 @@ export function rsiZone(value: number): "overbought" | "oversold" | "neutral" {
 }
 
 const ZONE_CLASS: Record<ReturnType<typeof rsiZone>, string> = {
-  overbought: "text-orange-400",
-  oversold: "text-sky-400",
-  neutral: "text-muted-foreground",
+  overbought: "text-amber-500",
+  oversold: "text-sky-400/90",
+  neutral: "text-foreground/80",
 };
 
 export function rsiHint(value: number): string {
@@ -42,15 +42,15 @@ export function RsiValue({
   if (value === null || value === undefined) {
     return (
       <span
-        className={`text-muted-foreground ${className}`}
+        className={`text-muted-foreground/40 ${className}`}
         title="Not enough daily closes stored yet to compute a 14-period RSI."
       >
-        —
+        ·
       </span>
     );
   }
   return (
-    <span className={`tabular-nums cursor-help ${ZONE_CLASS[rsiZone(value)]} ${className}`} title={rsiHint(value)}>
+    <span className={`tnum cursor-help ${ZONE_CLASS[rsiZone(value)]} ${className}`} title={rsiHint(value)}>
       {value.toFixed(1)}
     </span>
   );

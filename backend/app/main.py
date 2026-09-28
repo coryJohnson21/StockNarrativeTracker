@@ -124,7 +124,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="NarrativeTracker API",
+    title="Murmur API",
     description="Financial media intelligence — trending stocks, themes, and investment narratives",
     version="0.1.0",
     lifespan=lifespan,

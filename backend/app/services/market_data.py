@@ -12,7 +12,7 @@ MODULES = "summaryDetail,defaultKeyStatistics,assetProfile,price"
 # Yahoo blocks requests without a browser-like User-Agent, and as of 2024+ the
 # quoteSummary endpoint also requires a session cookie + CSRF "crumb" obtained
 # via an unauthenticated handshake (no API key needed, just these two requests).
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; NarrativeTracker/1.0)"}
+_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; Murmur/1.0)"}
 
 _crumb_cache: dict = {"crumb": None, "cookies": None, "fetched_at": 0.0}
 _CRUMB_TTL = 3600  # crumbs/cookies are long-lived but refresh hourly defensively

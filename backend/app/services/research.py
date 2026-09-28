@@ -400,6 +400,103 @@ async def load_rsi(db: AsyncSession, stock_ids: list, periods: int = RSI_PERIODS
     return out
 
 
+# The widest calendar gap that can still separate two *consecutive* trading
+# sessions: a three-day holiday weekend (Fri -> Tue) is 4 days. Anything wider
+# means we are missing closes in between, not that the market was shut.
+MAX_SESSION_GAP_DAYS = 4
+
+# How stale the newest stored close may be before a "day change" stops being
+# about today at all. Same 4-day reasoning, from today's side.
+MAX_STALENESS_DAYS = 4
+
+
+async def load_day_change(db: AsyncSession, stock_ids: list) -> dict:
+    """Latest session's percent change for many stocks in one query, keyed by stock id.
+
+    Deliberately conservative: this returns a value ONLY when the two newest
+    stored closes are genuinely consecutive sessions and the newer one is recent.
+    stock_prices is backfilled per stock and can be days stale or have holes, and
+    a naive "last two rows" reading silently turns a three-day or three-week gap
+    into a number captioned "Day" -- which is not a stale number, it is a wrong
+    one, and it sits in a column a trader reads at a glance.
+
+    A stock failing either test is absent from the result rather than present
+    with a 0.0, so the UI shows an empty cell instead of claiming the price was
+    flat. This is a close-to-close move, never intraday."""
+    if not stock_ids:
+        return {}
+
+    cutoff = date.today() - timedelta(days=14)
+
+    rows = (
+        await db.execute(
+            select(StockPrice.stock_id, StockPrice.date, StockPrice.close)
+            .where(StockPrice.stock_id.in_(stock_ids), StockPrice.date >= cutoff)
+        )
+    ).all()
+
+    grouped: dict = defaultdict(list)
+    for sid, d, c in rows:
+        grouped[sid].append((d, c))
+
+    today = date.today()
+    out = {}
+    for sid, pts in grouped.items():
+        if len(pts) < 2:
+            continue
+        pts.sort(key=lambda p: p[0])
+        (prev_date, prev_close), (last_date, last_close) = pts[-2], pts[-1]
+
+        if (today - last_date).days > MAX_STALENESS_DAYS:
+            continue
+        if (last_date - prev_date).days > MAX_SESSION_GAP_DAYS:
+            continue
+        if prev_close <= 0:
+            continue
+
+        out[sid] = (last_close / prev_close - 1.0) * 100.0
+    return out
+
+
+async def load_mention_sparklines(db: AsyncSession, stock_ids: list, days: int = 7) -> dict:
+    """Daily mention counts over the trailing `days`, keyed by stock id.
+
+    Returns a dense list of length `days` (oldest first) so the sparkline's x-axis
+    is real time, not "days that happened to have mentions" -- a stock mentioned
+    only on Monday and Friday must render as a spike, a trough and a spike, never
+    as two adjacent equal bars. Days with no mentions are 0, and a stock with no
+    mentions at all in the window is absent from the result entirely."""
+    if not stock_ids or days < 1:
+        return {}
+
+    today = date.today()
+    start = today - timedelta(days=days - 1)
+
+    # Bucket by calendar day of mentioned_at. Cast to date in SQL so grouping
+    # happens in the database rather than pulling every mention row into memory.
+    day_col = func.date(StockMention.mentioned_at)
+    rows = (
+        await db.execute(
+            select(day_col, StockMention.stock_id, func.count())
+            .where(
+                StockMention.stock_id.in_(stock_ids),
+                StockMention.mentioned_at >= datetime.combine(start, time.min),
+            )
+            .group_by(day_col, StockMention.stock_id)
+        )
+    ).all()
+
+    counts: dict = defaultdict(dict)
+    for d, sid, n in rows:
+        # func.date() comes back as a date on postgres and a string on sqlite.
+        if isinstance(d, str):
+            d = date.fromisoformat(d)
+        counts[sid][d] = n
+
+    axis = [start + timedelta(days=i) for i in range(days)]
+    return {sid: [by_day.get(d, 0) for d in axis] for sid, by_day in counts.items()}
+
+
 # --- backtest statistics (pure) ---------------------------------------------
 
 
@@ -617,3 +714,30 @@ async def get_research_status(db: AsyncSession) -> dict:
         "benchmark_available": bool(bench),
         "horizons": list(HORIZONS),
     }
+
+
+async def load_signal_history(db: AsyncSession, stock_id, limit: int = 8) -> list[dict]:
+    """Stage transitions for one stock, newest first, from momentum_snapshots.
+
+    Snapshots are daily, so consecutive rows usually carry the same label; only
+    the days where it actually changed are interesting, and this collapses runs
+    to their first day -- the date a stage was *entered*, which is what the
+    detail panel's history list means.
+
+    Scanned oldest-first so a run's start is the row kept, then reversed."""
+    rows = (
+        await db.execute(
+            select(MomentumSnapshot.date, MomentumSnapshot.label)
+            .where(MomentumSnapshot.stock_id == stock_id, MomentumSnapshot.label.isnot(None))
+            .order_by(MomentumSnapshot.date)
+        )
+    ).all()
+
+    transitions: list[dict] = []
+    prev = None
+    for d, label in rows:
+        if label != prev:
+            transitions.append({"date": d.isoformat(), "stage": label})
+            prev = label
+
+    return list(reversed(transitions))[:limit]

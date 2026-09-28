@@ -21,7 +21,7 @@ _request_lock = asyncio.Lock()
 
 
 def _headers() -> dict:
-    return {"User-Agent": f"NarrativeTracker research tool ({settings.sec_contact_email})"}
+    return {"User-Agent": f"Murmur research tool ({settings.sec_contact_email})"}
 
 
 async def _get(client: httpx.AsyncClient, url: str) -> httpx.Response:

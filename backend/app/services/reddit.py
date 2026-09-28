@@ -11,7 +11,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_USER_AGENT = "NarrativeTracker/1.0 (financial media research tool)"
+_USER_AGENT = "Murmur/1.0 (financial media research tool)"
 # Reddit blocks its anonymous JSON endpoints (www and api.reddit.com) for
 # non-browser clients, but still serves the Atom feed to a browser User-Agent.
 _BROWSER_UA = (

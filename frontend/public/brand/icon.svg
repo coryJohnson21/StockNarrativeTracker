@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Favicon: the rounded-square app-icon variant from the brand sheet.
+       Colours are hard-coded rather than themed: a favicon renders in browser
+       chrome, outside the page, where the app's CSS variables do not exist. -->
+  <rect width="64" height="64" rx="15" fill="#1A1A1F"/>
+  <path
+    d="M17 39.5 C 17.2 29.4, 19.3 23.7, 24.4 23.7 C 29.6 23.7, 31.2 32.4, 34.4 32.4 C 37.9 32.4, 39.1 16.5, 45.3 16.5 C 50.4 16.5, 50.9 28.4, 54.9 28.4"
+    fill="none"
+    stroke="#F5F3EF"
+    stroke-width="6.3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

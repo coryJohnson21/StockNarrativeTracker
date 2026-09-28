@@ -78,6 +78,23 @@ class StockMomentumResponse(BaseModel):
     # Wilder's 14-period RSI on daily closes, 0-100. None when the stock has too
     # little price history (or no tradeable symbol) to compute one.
     rsi_14: Optional[float] = None
+    # Percent change between the last two stored daily closes. None when fewer
+    # than two closes exist. This is last-completed-session, not intraday.
+    day_change_pct: Optional[float] = None
+    # Daily mention counts over the trailing 7 days, oldest first, zero-filled.
+    # None when the stock had no mentions in the window.
+    mention_spark_7d: Optional[List[int]] = None
+    # --- narrative fields for the stocks list ---
+    # Top themes co-mentioned with this stock, most-co-mentioned first.
+    themes: List[str] = []
+    # One sentence on why the stock is being talked about. Prefers the generated
+    # ai_summary; falls back to a real extracted mention. None when neither
+    # exists, in which case the UI hides the element rather than showing filler.
+    summary: Optional[str] = None
+    # Mentions split into the three buckets the source-mix bar shows.
+    source_mix: Optional[dict] = None
+    # True when the stock was first seen in the last 24h.
+    is_new: bool = False
     computed_at: datetime
 
     @computed_field

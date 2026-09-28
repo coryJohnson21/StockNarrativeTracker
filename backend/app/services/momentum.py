@@ -669,3 +669,119 @@ async def get_theme_momentum_extras(db: AsyncSession, theme_ids: list) -> dict:
     )
     rows = (await db.execute(q)).all()
     return {row.theme_id: {"previous_label": row.previous_label} for row in rows}
+
+
+# --- narrative fields for the stocks list -----------------------------------
+#
+# Four batch loaders, each taking every stock id on the page in one query rather
+# than per row: the list renders 100 stocks, so anything per-row would be 100
+# round trips.
+
+# Reddit is its own bucket in the UI's source mix, so it must not also fall into
+# "media" -- these three sets are treated as mutually exclusive below.
+_MIX_REDDIT = set(REDDIT_SOURCE_TYPES)
+_MIX_FILING = set(FILING_SOURCE_TYPES)
+
+
+async def load_stock_themes(db: AsyncSession, stock_ids: list, per_stock: int = 3) -> dict:
+    """Top themes per stock by co-mention count, keyed by stock id.
+
+    Co-mention means the theme and the stock were named in the same source, which
+    is the same relationship /themes already uses in the other direction (see
+    get_top_stocks_for_theme). It is an association, not a claim that the theme
+    moved the stock."""
+    if not stock_ids:
+        return {}
+
+    q = (
+        select(
+            StockMention.stock_id,
+            Theme.name,
+            func.count(distinct(StockMention.source_id)).label("co"),
+        )
+        .join(ThemeMention, ThemeMention.source_id == StockMention.source_id)
+        .join(Theme, Theme.id == ThemeMention.theme_id)
+        .where(StockMention.stock_id.in_(stock_ids))
+        .group_by(StockMention.stock_id, Theme.name)
+        .order_by(StockMention.stock_id, desc("co"))
+    )
+    rows = (await db.execute(q)).all()
+
+    out: dict = {}
+    for sid, name, _co in rows:
+        bucket = out.setdefault(sid, [])
+        if len(bucket) < per_stock:
+            bucket.append(name)
+    return out
+
+
+async def load_stock_summaries(db: AsyncSession, stock_ids: list) -> dict:
+    """One representative sentence per stock, taken from its mentions.
+
+    This is a real extracted sentence, not a generated summary: stock_momentum.
+    ai_summary exists but is written by nothing, so there is no LLM-authored text
+    to serve. Picking actual source text keeps the column honest -- the caller
+    prefers ai_summary when it is ever populated, and falls back to this.
+
+    Chooses the most opinionated recent mention: strongest absolute sentiment
+    first, then newest. A neutral "X was mentioned as a competitor to Y" says
+    nothing about why a stock is moving, so it loses to anything with a view."""
+    if not stock_ids:
+        return {}
+
+    ranked = (
+        select(
+            StockMention.stock_id,
+            StockMention.context,
+            func.row_number()
+            .over(
+                partition_by=StockMention.stock_id,
+                order_by=(
+                    desc(func.abs(StockMention.sentiment_score)),
+                    desc(StockMention.mentioned_at),
+                ),
+            )
+            .label("rn"),
+        )
+        .where(
+            StockMention.stock_id.in_(stock_ids),
+            StockMention.context.isnot(None),
+            StockMention.context != "",
+            # A company's own press release describing itself is not an outside
+            # read on why it is moving.
+            StockMention.is_self_mention.is_(False),
+        )
+        .subquery()
+    )
+
+    rows = (await db.execute(select(ranked.c.stock_id, ranked.c.context).where(ranked.c.rn == 1))).all()
+    return {sid: ctx.strip() for sid, ctx in rows if ctx and ctx.strip()}
+
+
+async def load_source_mix(db: AsyncSession, stock_ids: list) -> dict:
+    """Mention counts split into filings / media / reddit, keyed by stock id.
+
+    Buckets are exclusive and cover everything: reddit is checked before media so
+    a reddit post is not counted twice, and any source type that is neither a
+    filing nor reddit counts as media."""
+    if not stock_ids:
+        return {}
+
+    q = (
+        select(StockMention.stock_id, Source.type, func.count())
+        .join(Source, Source.id == StockMention.source_id)
+        .where(StockMention.stock_id.in_(stock_ids))
+        .group_by(StockMention.stock_id, Source.type)
+    )
+    rows = (await db.execute(q)).all()
+
+    out: dict = {}
+    for sid, stype, n in rows:
+        mix = out.setdefault(sid, {"filings": 0, "media": 0, "reddit": 0})
+        if stype in _MIX_REDDIT:
+            mix["reddit"] += n
+        elif stype in _MIX_FILING:
+            mix["filings"] += n
+        else:
+            mix["media"] += n
+    return out

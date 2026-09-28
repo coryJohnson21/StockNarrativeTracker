@@ -1,4 +1,4 @@
-# NarrativeTracker
+# Murmur
 
 Financial media intelligence platform — ingests CNBC clips, earnings calls, and finance videos, then identifies trending stocks, sectors, and investment themes with narrative momentum scoring.
 
@@ -242,4 +242,4 @@ vercel deploy
 - [ ] Custom watchlists
 - [ ] Export to CSV/PDF
 - [ ] API rate limiting and usage tracking
-# StockNarrativeTracker
+# Murmur

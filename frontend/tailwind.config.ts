@@ -46,11 +46,18 @@ const config: Config = {
         },
         bullish: "#22c55e",
         bearish: "#ef4444",
+        // Direction only -- price change and sentiment sign. Never decoration.
+        up: "hsl(var(--up))",
+        down: "hsl(var(--down))",
+      },
+      fontFamily: {
+        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       borderRadius: {
         lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        md: "calc(var(--radius) - 1px)",
+        sm: "calc(var(--radius) - 2px)",
       },
       keyframes: {
         "accordion-down": {

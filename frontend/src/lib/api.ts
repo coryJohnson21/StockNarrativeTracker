@@ -1,4 +1,4 @@
-import type { Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, ThemeIndex, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed, RedditFeedDetail, RedditOverview, ResearchStatus, BacktestResult, SourceReliability, ChannelTrackRecord, RecentInsiderTrades, InsiderOverview } from "@/types";
+import type { SignalTransition, Source, StockTrending, StockSearchResult, ThemeTrending, DashboardStats, Mention, StockFiling, SP500Company, StockProfile, ThemeProfile, ThemeIndex, WatchlistItem, PodcastFeed, PodcastFeedDetail, PodcastSearchResult, YoutubeChannelResolution, RedditFeed, RedditFeedDetail, RedditOverview, ResearchStatus, BacktestResult, SourceReliability, ChannelTrackRecord, RecentInsiderTrades, InsiderOverview } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -100,6 +100,13 @@ export async function getTrendingStocks(params?: {
   if (params?.category) q.set("category", params.category);
   if (params?.channel) q.set("channel", params.channel);
   return apiFetch(`/api/stocks/trending?${q}`);
+}
+
+export async function getStockSignalHistory(
+  ticker: string,
+  limit = 8
+): Promise<{ ticker: string; history: SignalTransition[] }> {
+  return apiFetch(`/api/stocks/${ticker}/signal-history?limit=${limit}`);
 }
 
 export async function searchStocks(q: string, limit = 8): Promise<{ stocks: StockSearchResult[] }> {

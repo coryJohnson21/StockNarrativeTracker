@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,9 @@ from app.services.momentum import (
     get_stock_mention_contexts,
     get_stock_mention_history,
     get_stock_momentum_extras,
+    load_stock_themes,
+    load_stock_summaries,
+    load_source_mix,
     sentiment_to_label,
     FILING_SOURCE_TYPES,
     MEDIA_CHANNEL_SOURCE_TYPES,
@@ -30,7 +34,7 @@ from app.services import market_data
 from app.services.calls import get_stock_calls, get_stock_call_summary
 from app.services.insiders import get_stock_insider_summary, get_stock_insider_transactions
 from app.config import settings
-from app.services.research import load_rsi
+from app.services.research import load_rsi, load_day_change, load_mention_sparklines, load_signal_history
 from app.services.narratives import get_stock_narratives
 from app.services.signals import get_stock_signals
 from app.services.extraction import condense_company_description, generate_narrative_summary
@@ -38,6 +42,33 @@ from app.services.extraction import condense_company_description, generate_narra
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
+
+# A stock first seen inside this window is flagged NEW in the list.
+_NEW_STOCK_WINDOW = timedelta(hours=24)
+
+
+async def _narrative_fields(db: AsyncSession, stock_ids: list) -> dict:
+    """Themes, summary and source mix for a page of stocks, in three queries."""
+    return {
+        "themes": await load_stock_themes(db, stock_ids),
+        "summaries": await load_stock_summaries(db, stock_ids),
+        "mix": await load_source_mix(db, stock_ids),
+    }
+
+
+def _summary_for(stock_id, ai_summary: Optional[str], summaries: dict) -> Optional[str]:
+    """Prefer generated text, fall back to a real extracted mention, else nothing.
+
+    ai_summary is currently written by no code path, so in practice this serves
+    the extracted mention today and will pick up generated summaries for free if
+    one is ever produced -- without the UI changing."""
+    if ai_summary and ai_summary.strip():
+        return ai_summary.strip()
+    return summaries.get(stock_id)
+
+
+def _is_new(created_at) -> bool:
+    return bool(created_at and datetime.utcnow() - created_at < _NEW_STOCK_WINDOW)
 
 
 @router.get("/trending", response_model=StockListResponse)
@@ -65,6 +96,9 @@ async def get_trending_stocks(
         stock_ids = [row["parent"].id for row in rows]
         extras = await get_stock_momentum_extras(db, stock_ids)
         rsi = await load_rsi(db, stock_ids)
+        day_change = await load_day_change(db, stock_ids)
+        sparklines = await load_mention_sparklines(db, stock_ids)
+        narrative = await _narrative_fields(db, stock_ids)
         results = [
             StockMomentumResponse(
                 id=row["parent"].id,
@@ -87,6 +121,12 @@ async def get_trending_stocks(
                 market_cap=extras.get(row["parent"].id, {}).get("market_cap"),
                 novelty_7d=row.get("novelty_7d"),
                 rsi_14=rsi.get(row["parent"].id),
+                day_change_pct=day_change.get(row["parent"].id),
+                mention_spark_7d=sparklines.get(row["parent"].id),
+                themes=narrative["themes"].get(row["parent"].id, []),
+                summary=_summary_for(row["parent"].id, row["ai_summary"], narrative["summaries"]),
+                source_mix=narrative["mix"].get(row["parent"].id),
+                is_new=_is_new(getattr(row["parent"], "created_at", None)),
                 computed_at=row["computed_at"],
             )
             for row in rows
@@ -110,7 +150,11 @@ async def get_trending_stocks(
     total = (await db.execute(count_q)).scalar()
     rows = (await db.execute(q.offset(offset).limit(limit))).all()
 
-    rsi = await load_rsi(db, [stock.id for stock, _ in rows])
+    stock_ids = [stock.id for stock, _ in rows]
+    rsi = await load_rsi(db, stock_ids)
+    day_change = await load_day_change(db, stock_ids)
+    sparklines = await load_mention_sparklines(db, stock_ids)
+    narrative = await _narrative_fields(db, stock_ids)
 
     results = []
     for stock, momentum in rows:
@@ -136,6 +180,12 @@ async def get_trending_stocks(
                 market_cap=momentum.market_cap,
                 novelty_7d=momentum.novelty_7d,
                 rsi_14=rsi.get(stock.id),
+                day_change_pct=day_change.get(stock.id),
+                mention_spark_7d=sparklines.get(stock.id),
+                themes=narrative["themes"].get(stock.id, []),
+                summary=_summary_for(stock.id, momentum.ai_summary, narrative["summaries"]),
+                source_mix=narrative["mix"].get(stock.id),
+                is_new=_is_new(stock.created_at),
                 computed_at=momentum.computed_at,
             )
         )
@@ -287,6 +337,23 @@ async def get_stock_calls_endpoint(
         raise HTTPException(status_code=404, detail=f"{ticker.upper()} is not tracked")
 
     return {"ticker": stock.ticker, "calls": await get_stock_calls(db, stock.id, limit=limit)}
+
+
+@router.get("/{ticker}/signal-history")
+async def get_stock_signal_history(
+    ticker: str,
+    limit: int = Query(8, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dates this stock entered each narrative stage, newest first.
+
+    Fetched on demand by the stocks-list detail panel rather than included in
+    /trending: it is one query per stock, and the list renders 100 of them."""
+    stock = (await db.execute(select(Stock).where(Stock.ticker == ticker.upper()))).scalar_one_or_none()
+    if stock is None:
+        raise HTTPException(status_code=404, detail=f"{ticker.upper()} is not tracked")
+
+    return {"ticker": stock.ticker, "history": await load_signal_history(db, stock.id, limit=limit)}
 
 
 @router.get("/{ticker}/insiders")

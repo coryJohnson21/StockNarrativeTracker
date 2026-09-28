@@ -46,7 +46,32 @@ export interface StockTrending {
   novelty_7d?: number | null;
   /** Wilder's 14-period RSI on daily closes, 0-100. Null when price history is too short. */
   rsi_14?: number | null;
+  /** Percent change between the last two stored daily closes. Null when fewer than
+   *  two closes exist. Close-to-close, not intraday. */
+  day_change_pct?: number | null;
+  /** Daily mention counts over the trailing 7 days, oldest first, zero-filled.
+   *  Null when the stock had no mentions in the window. */
+  mention_spark_7d?: number[] | null;
+  /** Themes most co-mentioned with this stock, strongest first. */
+  themes?: string[];
+  /** One sentence on why the stock is being talked about: the generated summary
+   *  when one exists, otherwise a real extracted mention. Null when neither. */
+  summary?: string | null;
+  /** Mentions split into the buckets the source-mix bar shows. */
+  source_mix?: { filings: number; media: number; reddit: number } | null;
+  /** First seen in the last 24h. */
+  is_new?: boolean;
   computed_at: string;
+}
+
+/** The narrative stages a stock moves through, weakest to strongest. Ordering is
+ *  what decides whether a transition renders as an upgrade or a downgrade. */
+export type Stage = "fading" | "emerging" | "building" | "mixed" | "positive";
+
+export interface SignalTransition {
+  /** ISO date the stock entered this stage. */
+  date: string;
+  stage: Stage;
 }
 
 export type SymbolStatus = "ok" | "unknown" | "mismatch";
