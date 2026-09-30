@@ -8,7 +8,6 @@ import { CategoryToggle } from "@/components/CategoryToggle";
 import { LiveStatus } from "@/components/LiveStatus";
 import { TrendingStocksTable } from "@/components/TrendingStocksTable";
 import { TrendingThemesTable } from "@/components/TrendingThemesTable";
-import { RecentInsiderTrades } from "@/components/RecentInsiderTrades";
 import type { MediaChannel, SourceCategory } from "@/lib/api";
 
 const CATEGORY_BLURB: Record<string, string> = {
@@ -82,36 +81,6 @@ function NarrativeSection() {
 }
 
 
-const INSIDER_WINDOW_DAYS = 30;
-
-function InsiderSection() {
-  return (
-    <section>
-      <div className="flex items-baseline gap-2.5 flex-wrap pb-2.5">
-        <h2 className="text-[13px] font-semibold tracking-tight">Insider Activity</h2>
-        <p className="text-[11px] text-muted-foreground">
-          Open-market Form 4 buys and sells, last {INSIDER_WINDOW_DAYS} days. Ranked separately —
-          a routine sale at a mega-cap dwarfs almost any purchase.
-        </p>
-      </div>
-      <div className="grid grid-cols-1 2xl:grid-cols-2 gap-x-8 gap-y-5">
-        <div>
-          <SectionHead title="Biggest Purchases" href="/insiders" />
-          <div className="border-t border-border">
-            <RecentInsiderTrades side="buys" days={INSIDER_WINDOW_DAYS} limit={10} />
-          </div>
-        </div>
-        <div>
-          <SectionHead title="Biggest Sales" href="/insiders" />
-          <div className="border-t border-border">
-            <RecentInsiderTrades side="sells" days={INSIDER_WINDOW_DAYS} limit={10} />
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 export default function DashboardPage() {
   return (
     <div className="space-y-6">
@@ -126,7 +95,6 @@ export default function DashboardPage() {
       </div>
 
       <NarrativeSection />
-      <InsiderSection />
     </div>
   );
 }
